@@ -3,14 +3,23 @@ package com.example.p2pchat
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.p2pchat.feature.conversations.ConversationsRoute
 import com.example.p2pchat.feature.messaging.ChatScreen
 import com.example.p2pchat.feature.peers.PeersRoute
+import com.example.p2pchat.feature.settings.CreateIdentityRoute
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -24,22 +33,40 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun P2PChatAppContent() {
+fun P2PChatAppContent(
+    viewModel: MainViewModel = hiltViewModel()
+) {
     val navController = rememberNavController()
+    val startDestination by viewModel.startDestination.collectAsState()
 
-    NavHost(navController = navController, startDestination = "conversations") {
-        composable("conversations") {
-            ConversationsRoute(
-                onNavigateToChat = { threadId ->
-                    navController.navigate("chat/$threadId")
-                }
-            )
+    if (startDestination == null) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
-        composable("chat/{threadId}") { backStackEntry ->
-            ChatScreen()
-        }
-        composable("peers") {
-            PeersRoute()
+    } else {
+        NavHost(navController = navController, startDestination = startDestination!!) {
+            composable("create_identity") {
+                CreateIdentityRoute(
+                    onIdentityCreated = {
+                        navController.navigate("conversations") {
+                            popUpTo("create_identity") { inclusive = true }
+                        }
+                    }
+                )
+            }
+            composable("conversations") {
+                ConversationsRoute(
+                    onNavigateToChat = { threadId ->
+                        navController.navigate("chat/$threadId")
+                    }
+                )
+            }
+            composable("chat/{threadId}") { backStackEntry ->
+                ChatScreen()
+            }
+            composable("peers") {
+                PeersRoute()
+            }
         }
     }
 }

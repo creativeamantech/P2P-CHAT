@@ -3,7 +3,7 @@ package com.example.p2pchat.core.crypto
 import com.example.p2pchat.core.model.UserIdentity
 
 interface CryptoManager {
-    suspend fun getMyIdentity(): UserIdentity
+    suspend fun getMyIdentity(): UserIdentity?
     suspend fun generateNewIdentity(displayName: String): UserIdentity
 
     // Encrypt/Decrypt

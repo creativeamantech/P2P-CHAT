@@ -6,6 +6,11 @@ import kotlinx.coroutines.flow.StateFlow
 interface P2PTransport {
     val peerId: String
     val connectionState: StateFlow<ConnectionState>
+
+    // Discovery
+    fun discoverPeers(): Flow<List<PeerDescriptor>>
+
+    // Connection
     suspend fun connect(peerDescriptor: PeerDescriptor): Result<Unit>
     suspend fun send(payload: EncryptedPayload): Result<Unit>
     fun receive(): Flow<EncryptedPayload>
@@ -21,6 +26,7 @@ sealed class ConnectionState {
 
 data class PeerDescriptor(
     val peerId: String,
+    val name: String,
     val address: String? = null // IP, MAC, etc.
 )
 
