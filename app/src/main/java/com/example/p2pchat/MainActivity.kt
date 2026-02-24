@@ -19,6 +19,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.p2pchat.feature.conversations.ConversationsRoute
 import com.example.p2pchat.feature.messaging.ChatScreen
 import com.example.p2pchat.feature.peers.PeersRoute
+import com.example.p2pchat.feature.peers.scan.ScanQrScreen
 import com.example.p2pchat.feature.settings.CreateIdentityRoute
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -87,7 +88,40 @@ fun P2PChatAppContent(
             }
             composable("peers") {
                 PeersRoute(
-                    initialLink = initialLink
+                    initialLink = initialLink,
+                    onNavigateToScan = {
+                        navController.navigate("scan")
+                    }
+                )
+            }
+            composable("scan") {
+                ScanQrScreen(
+                    onQrScanned = { link ->
+                        // Navigate back to peers with the link to import
+                        // Since we can't pass args to existing screen easily via popBackStack with result in this simplified setup,
+                        // we'll navigate to peers with argument or use a shared viewmodel?
+                        // For MVP, navigate to peers with link as argument.
+                        // But current PeersRoute uses 'initialLink' which is from Intent.
+                        // Let's modify PeersRoute to accept link from nav arg too?
+                        // Or simpler: handle import in ScanQrScreen?
+                        // ScanQrScreen shouldn't have business logic.
+
+                        // Let's just navigate to Peers with "link={link}" (need to update route)
+                        // Or for MVP, since PeersRoute handles 'initialLink' which is passed from MainActivity param,
+                        // we can't easily change it here.
+
+                        // Workaround: We'll just handle the import call here via a SideEffect if we had a shared VM.
+                        // Or we update PeersRoute to use SavedStateHandle?
+
+                        // Simplest:
+                        // launch Intent(ACTION_VIEW, Uri.parse(link))
+                        // This will trigger MainActivity.onNewIntent -> setIntent -> Recompose with new initialLink.
+                        val intent = Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link))
+                        intent.setPackage(navController.context.packageName) // Keep inside app
+                        navController.context.startActivity(intent)
+                        // And pop this scan screen
+                        navController.popBackStack()
+                    }
                 )
             }
         }
