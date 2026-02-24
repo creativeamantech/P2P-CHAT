@@ -23,11 +23,21 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.p2pchat.core.network.ConnectionState
 import com.example.p2pchat.core.network.PeerDescriptor
 
+import androidx.compose.runtime.LaunchedEffect
+
 @Composable
 fun PeersRoute(
-    viewModel: PeersViewModel = hiltViewModel()
+    viewModel: PeersViewModel = hiltViewModel(),
+    initialLink: String? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    LaunchedEffect(initialLink) {
+        if (initialLink != null) {
+            viewModel.importPeer(initialLink)
+        }
+    }
+
     PeersScreen(
         uiState = uiState,
         onConnect = viewModel::connectToPeer,

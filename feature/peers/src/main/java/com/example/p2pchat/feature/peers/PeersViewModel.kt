@@ -9,8 +9,10 @@ import com.example.p2pchat.core.network.ConnectionState
 import com.example.p2pchat.core.network.PeerDescriptor
 import com.example.p2pchat.core.storage.repository.PeerRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -71,6 +73,29 @@ class PeersViewModel @Inject constructor(
                 .onFailure {
                     // Handle error
                 }
+        }
+    }
+
+    fun importPeer(address: String) {
+        val descriptor = ChatAddressHelper.parseAddress(address) ?: return
+        val keys = ChatAddressHelper.extractKeys(address)
+
+        viewModelScope.launch {
+            if (keys != null) {
+                // We have their keys!
+                val (ik, ek) = keys
+                val peer = Peer(
+                    id = descriptor.peerId,
+                    displayName = descriptor.name,
+                    publicKey = PublicKeyBundle(ik, ek, ""),
+                    lastSeen = Clock.System.now(),
+                    isTrusted = true // Imported via QR/Link implies some trust
+                )
+                peerRepository.addPeer(peer)
+            } else {
+                // Just a name/ID, save placeholder
+                savePeerPlaceholder(descriptor)
+            }
         }
     }
 

@@ -40,14 +40,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Handle Deep Link
-        val data = intent?.data
-        if (data != null && data.scheme == "p2pchat" && data.host == "peer") {
-            // Process in ViewModel
-            // But MainViewModel is for startup logic.
-            // We should navigate to Peers screen or a "New Peer" dialog.
-        }
-
         setContent {
             P2PChatAppContent(initialLink = intent?.data?.toString())
         }
@@ -67,9 +59,6 @@ fun P2PChatAppContent(
 ) {
     val navController = rememberNavController()
     val startDestination by viewModel.startDestination.collectAsState()
-
-    // TODO: Handle initialLink in PeersViewModel or similar
-    // For now, we just let the app start.
 
     if (startDestination == null) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -97,7 +86,9 @@ fun P2PChatAppContent(
                 ChatScreen()
             }
             composable("peers") {
-                PeersRoute()
+                PeersRoute(
+                    initialLink = initialLink
+                )
             }
         }
     }

@@ -44,6 +44,17 @@ dependencies {
     implementation(project(":core:network"))
     implementation(project(":core:ui"))
     implementation("org.bouncycastle:bcprov-jdk18on:1.77")
+
+    // CameraX
+    val cameraxVersion = "1.3.1"
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
+
+    // ZXing
+    implementation("com.google.zxing:core:3.5.3")
+
     implementation("com.google.dagger:hilt-android:2.50")
     ksp("com.google.dagger:hilt-android-compiler:2.50")
     val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
