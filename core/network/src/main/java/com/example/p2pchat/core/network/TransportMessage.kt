@@ -10,7 +10,8 @@ sealed class TransportMessage {
 
     data class Handshake(
         val identityKey: ByteArray, // Ed25519 Public Key
-        val ephemeralKey: ByteArray // X25519 Public Key (Initial Ratchet Key)
+        val exchangeKey: ByteArray, // X25519 Identity Key
+        val ephemeralKey: ByteArray // X25519 Ephemeral Key
     ) : TransportMessage() {
         override fun toBytes(): ByteArray {
             val bos = ByteArrayOutputStream()
@@ -19,6 +20,9 @@ sealed class TransportMessage {
 
             dos.writeInt(identityKey.size)
             dos.write(identityKey)
+
+            dos.writeInt(exchangeKey.size)
+            dos.write(exchangeKey)
 
             dos.writeInt(ephemeralKey.size)
             dos.write(ephemeralKey)
@@ -44,9 +48,32 @@ sealed class TransportMessage {
         }
     }
 
+    data class AttachmentChunk(
+        val transferId: String,
+        val chunkIndex: Int,
+        val totalChunks: Int,
+        val data: ByteArray
+    ) : TransportMessage() {
+        override fun toBytes(): ByteArray {
+            val bos = ByteArrayOutputStream()
+            val dos = DataOutputStream(bos)
+            dos.writeByte(TYPE_ATTACHMENT)
+
+            dos.writeUTF(transferId)
+            dos.writeInt(chunkIndex)
+            dos.writeInt(totalChunks)
+            dos.writeInt(data.size)
+            dos.write(data)
+
+            dos.flush()
+            return bos.toByteArray()
+        }
+    }
+
     companion object {
         private const val TYPE_HANDSHAKE = 1
         private const val TYPE_CHAT = 2
+        const val TYPE_ATTACHMENT = 3
 
         fun fromBytes(bytes: ByteArray): TransportMessage {
             val bis = ByteArrayInputStream(bytes)
@@ -59,11 +86,15 @@ sealed class TransportMessage {
                     val idKey = ByteArray(idLen)
                     dis.readFully(idKey)
 
+                    val exLen = dis.readInt()
+                    val exKey = ByteArray(exLen)
+                    dis.readFully(exKey)
+
                     val ephLen = dis.readInt()
                     val ephKey = ByteArray(ephLen)
                     dis.readFully(ephKey)
 
-                    Handshake(idKey, ephKey)
+                    Handshake(idKey, exKey, ephKey)
                 }
                 TYPE_CHAT -> {
                     val len = dis.readInt()
@@ -71,7 +102,16 @@ sealed class TransportMessage {
                     dis.readFully(payload)
                     Chat(payload)
                 }
-                else -> throw IllegalArgumentException("Unknown message type: ")
+                TYPE_ATTACHMENT -> {
+                    val transferId = dis.readUTF()
+                    val index = dis.readInt()
+                    val total = dis.readInt()
+                    val len = dis.readInt()
+                    val data = ByteArray(len)
+                    dis.readFully(data)
+                    AttachmentChunk(transferId, index, total, data)
+                }
+                else -> throw IllegalArgumentException("Unknown message type: $type")
             }
         }
     }

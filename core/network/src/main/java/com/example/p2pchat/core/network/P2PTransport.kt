@@ -13,7 +13,8 @@ interface P2PTransport {
     // Connection
     suspend fun connect(peerDescriptor: PeerDescriptor): Result<Unit>
     suspend fun send(payload: EncryptedPayload): Result<Unit>
-    suspend fun sendHandshake(message: TransportMessage.Handshake): Result<Unit> // Added
+    suspend fun sendHandshake(message: TransportMessage.Handshake): Result<Unit>
+    suspend fun sendAttachment(message: TransportMessage.AttachmentChunk): Result<Unit> // Added
     fun receive(): Flow<EncryptedPayload>
     suspend fun disconnect()
 }
@@ -34,7 +35,8 @@ data class PeerDescriptor(
 data class EncryptedPayload(
     val data: ByteArray,
     val senderId: String? = null,
-    val isHandshake: Boolean = false
+    val isHandshake: Boolean = false,
+    val isAttachment: Boolean = false // Added
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -43,6 +45,7 @@ data class EncryptedPayload(
         if (!data.contentEquals(other.data)) return false
         if (senderId != other.senderId) return false
         if (isHandshake != other.isHandshake) return false
+        if (isAttachment != other.isAttachment) return false
         return true
     }
 
@@ -50,6 +53,7 @@ data class EncryptedPayload(
         var result = data.contentHashCode()
         result = 31 * result + (senderId?.hashCode() ?: 0)
         result = 31 * result + isHandshake.hashCode()
+        result = 31 * result + isAttachment.hashCode()
         return result
     }
 }

@@ -10,6 +10,7 @@ import com.example.p2pchat.core.model.DeliveryState
 import com.example.p2pchat.core.model.Message
 import com.example.p2pchat.core.network.ConnectionManager
 import com.example.p2pchat.core.network.EncryptedPayload
+import com.example.p2pchat.core.network.FileTransferManager
 import com.example.p2pchat.core.storage.entity.AttachmentEntity
 import com.example.p2pchat.core.storage.entity.MessageEntity
 import com.example.p2pchat.core.storage.repository.AttachmentRepository
@@ -36,6 +37,7 @@ class MessagingViewModel @Inject constructor(
     private val attachmentRepository: AttachmentRepository,
     private val ratchetManager: RatchetManager,
     private val connectionManager: ConnectionManager,
+    private val fileTransferManager: FileTransferManager,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -132,7 +134,7 @@ class MessagingViewModel @Inject constructor(
                 type = "image/jpeg", // Simplified
                 size = file.length(),
                 filename = file.name,
-                uri = file.absolutePath // Store local path
+                uri = file.absolutePath
             )
 
             // 3. Create Message
@@ -155,9 +157,18 @@ class MessagingViewModel @Inject constructor(
             messageRepository.saveMessage(messageEntity)
             messageRepository.saveAttachment(attachmentEntity.copy(messageId = messageId))
 
-            // 5. Send (Placeholder)
-            val ciphertext = ratchetManager.encrypt(peerId, "[Image Attachment]".toByteArray())
-            connectionManager.sendMessage(peerId, EncryptedPayload(ciphertext))
+            // 5. Send Transfer
+            val transferId = UUID.randomUUID().toString()
+            val transport = connectionManager.getActiveTransport(peerId)
+
+            if (transport != null) {
+                fileTransferManager.sendFile(peerId, file, transport, transferId)
+
+                // 6. Send Metadata Message
+                val meta = "ATTACHMENT_POINTER:$transferId:${file.name}"
+                val ciphertext = ratchetManager.encrypt(peerId, meta.toByteArray())
+                connectionManager.sendMessage(peerId, EncryptedPayload(ciphertext))
+            }
         }
     }
 

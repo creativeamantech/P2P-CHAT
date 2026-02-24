@@ -199,6 +199,22 @@ class BluetoothTransport @Inject constructor(
         }
     }
 
+    override suspend fun sendAttachment(message: TransportMessage.AttachmentChunk): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val out = outputStream ?: return@withContext Result.failure(Exception("Not connected"))
+                val bytes = message.toBytes()
+                synchronized(out) {
+                    out.write(bytes)
+                    out.flush()
+                }
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
     override fun receive(): Flow<EncryptedPayload> = incomingMessages.consumeAsFlow()
 
     override suspend fun disconnect() {

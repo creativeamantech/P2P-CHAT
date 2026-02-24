@@ -44,8 +44,10 @@ class CryptoManagerImpl @Inject constructor(
     override suspend fun getMyIdentity(): UserIdentity? {
         val userId = sharedPreferences.getString("user_id", null) ?: return null
         val displayName = sharedPreferences.getString("display_name", "Unknown") ?: "Unknown"
-        val ed25519PubBase64 = sharedPreferences.getString("ed25519_pub", null)!!
-        val x25519PubBase64 = sharedPreferences.getString("x25519_pub", null)!!
+        val ed25519PubBase64 = sharedPreferences.getString("ed25519_pub", null)
+        val x25519PubBase64 = sharedPreferences.getString("x25519_pub", null)
+
+        if (ed25519PubBase64 == null || x25519PubBase64 == null) return null
 
         return UserIdentity(
             userId = userId,
@@ -93,16 +95,7 @@ class CryptoManagerImpl @Inject constructor(
     }
 
     override fun encrypt(plaintext: ByteArray, recipientPublicKey: ByteArray): ByteArray {
-        // Get my private X25519 key
-        val myPrivBase64 = sharedPreferences.getString("x25519_priv", null) ?: return plaintext
-        val myPrivBytes = Base64.decode(myPrivBase64, Base64.DEFAULT)
-        // X25519PrivateKeyParameters constructor takes ByteArray
-        val myPrivKey = X25519PrivateKeyParameters(myPrivBytes, 0)
-
-        // Compute Shared Secret
-        val theirPubKey = X25519PublicKeyParameters(recipientPublicKey, 0)
-        val sharedSecret = ByteArray(32)
-        myPrivKey.generateSecret(theirPubKey, sharedSecret, 0)
+        val sharedSecret = calculateSharedSecret(recipientPublicKey)
 
         // Derive AES Key (using simple SecretKeySpec for MVP, in real app use HKDF)
         val aesKey = SecretKeySpec(sharedSecret, "AES")
@@ -119,16 +112,7 @@ class CryptoManagerImpl @Inject constructor(
     }
 
     override fun decrypt(ciphertext: ByteArray, senderPublicKey: ByteArray): ByteArray {
-        // Get my private X25519 key
-        val myPrivBase64 = sharedPreferences.getString("x25519_priv", null) ?: return ciphertext
-        val myPrivBytes = Base64.decode(myPrivBase64, Base64.DEFAULT)
-        val myPrivKey = X25519PrivateKeyParameters(myPrivBytes, 0)
-
-        // Compute Shared Secret
-        val senderPubKey = X25519PublicKeyParameters(senderPublicKey, 0)
-        val sharedSecret = ByteArray(32)
-        myPrivKey.generateSecret(senderPubKey, sharedSecret, 0)
-
+        val sharedSecret = calculateSharedSecret(senderPublicKey)
         val aesKey = SecretKeySpec(sharedSecret, "AES")
 
         // Decrypt
@@ -139,6 +123,18 @@ class CryptoManagerImpl @Inject constructor(
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
         return cipher.doFinal(actualCiphertext)
+    }
+
+    override fun calculateSharedSecret(remotePublicKey: ByteArray): ByteArray {
+        val myPrivBase64 = sharedPreferences.getString("x25519_priv", null) ?: throw IllegalStateException("No private key initialized")
+        val myPrivBytes = Base64.decode(myPrivBase64, Base64.DEFAULT)
+        val myPrivKey = X25519PrivateKeyParameters(myPrivBytes, 0)
+
+        val theirPubKey = X25519PublicKeyParameters(remotePublicKey, 0)
+        val sharedSecret = ByteArray(32)
+        myPrivKey.generateSecret(theirPubKey, sharedSecret, 0)
+
+        return sharedSecret
     }
 
     override fun getDatabasePassphrase(): ByteArray {

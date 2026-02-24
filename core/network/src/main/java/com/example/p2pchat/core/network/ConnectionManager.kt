@@ -139,7 +139,7 @@ class ConnectionManager @Inject constructor(
         }
     }
 
-    private fun getActiveTransport(peerId: String): P2PTransport? {
+    fun getActiveTransport(peerId: String): P2PTransport? {
         // Check active map
         if (activeTransports.containsKey(peerId)) return activeTransports[peerId]
 

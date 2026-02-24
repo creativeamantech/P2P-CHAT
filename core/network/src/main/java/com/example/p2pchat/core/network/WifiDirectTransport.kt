@@ -59,6 +59,7 @@ class WifiDirectTransport @Inject constructor(
     private var socket: Socket? = null
     private var inputStream: DataInputStream? = null
     private var outputStream: DataOutputStream? = null
+    private var connectedPeerId: String? = null
 
     private val incomingMessages = Channel<EncryptedPayload>(Channel.BUFFERED)
 
@@ -76,7 +77,7 @@ class WifiDirectTransport @Inject constructor(
                         manager?.requestPeers(wifiP2pChannel) { peers ->
                             val descriptors = peers.deviceList.map { device ->
                                 PeerDescriptor(
-                                    peerId = device.deviceAddress,
+                                    peerId = device.deviceAddress, // Using MAC as ID for discovery
                                     name = device.deviceName,
                                     address = device.deviceAddress
                                 )
@@ -154,37 +155,53 @@ class WifiDirectTransport @Inject constructor(
         scope.launch {
             try {
                 while (true) {
-                    val length = inputStream?.readInt() ?: break
-                    val bytes = ByteArray(length)
-                    inputStream?.readFully(bytes)
+                    val type = inputStream?.readByte()?.toInt() ?: break
 
-                    // Parse TransportMessage
-                    // In real app, we handle handshake packets here internally
-                    // and only expose Payload to the Flow once handshake is done.
-                    // For MVP Phase 2, we just pass bytes.
-                    // But now we defined TransportMessage.
+                    if (type == 1) { // Handshake
+                        val idLen = inputStream!!.readInt()
+                        val idKey = ByteArray(idLen)
+                        inputStream!!.readFully(idKey)
 
-                    try {
-                        val message = TransportMessage.fromBytes(bytes)
-                        when (message) {
-                            is TransportMessage.Handshake -> {
-                                // TODO: Handle Handshake (Delegate to ConnectionManager or higher level)
-                                // For now, we expose it wrapped as EncryptedPayload just to pass data up
-                                // This assumes upper layer handles handshake
-                                incomingMessages.send(EncryptedPayload(bytes))
-                            }
-                            is TransportMessage.Chat -> {
-                                incomingMessages.send(EncryptedPayload(message.payload))
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e("P2P", "Parse error", e)
+                        val exLen = inputStream!!.readInt()
+                        val exKey = ByteArray(exLen)
+                        inputStream!!.readFully(exKey)
+
+                        val ephLen = inputStream!!.readInt()
+                        val ephKey = ByteArray(ephLen)
+                        inputStream!!.readFully(ephKey)
+
+                        val handshake = TransportMessage.Handshake(idKey, exKey, ephKey)
+
+                        incomingMessages.send(EncryptedPayload(handshake.toBytes(), null, true))
+
+                    } else if (type == 2) { // Chat
+                        val len = inputStream!!.readInt()
+                        val payload = ByteArray(len)
+                        inputStream!!.readFully(payload)
+
+                        // Pass payload with senderId
+                        incomingMessages.send(EncryptedPayload(payload, connectedPeerId, false))
+                    } else if (type == 3) { // Attachment
+                        val transferId = inputStream!!.readUTF()
+                        val index = inputStream!!.readInt()
+                        val total = inputStream!!.readInt()
+                        val len = inputStream!!.readInt()
+                        val data = ByteArray(len)
+                        inputStream!!.readFully(data)
+
+                        val chunk = TransportMessage.AttachmentChunk(transferId, index, total, data)
+                        incomingMessages.send(EncryptedPayload(chunk.toBytes(), connectedPeerId, false, true))
+                    } else {
+                        // Unknown type
+                        break
                     }
                 }
             } catch (e: IOException) {
                 Log.e("P2P", "Receive error", e)
                 _connectionState.value = ConnectionState.Disconnected
                 closeSocket()
+            } catch (e: Exception) {
+                Log.e("P2P", "Parse error", e)
             }
         }
     }
@@ -195,6 +212,7 @@ class WifiDirectTransport @Inject constructor(
             socket = null
             inputStream = null
             outputStream = null
+            connectedPeerId = null
         } catch (e: Exception) {
             // Ignore
         }
@@ -205,24 +223,25 @@ class WifiDirectTransport @Inject constructor(
         if (!hasPermissions()) return Result.failure(SecurityException("Missing permissions"))
 
         _connectionState.value = ConnectionState.Connecting
+        connectedPeerId = peerDescriptor.peerId
 
         val config = WifiP2pConfig().apply {
             deviceAddress = peerDescriptor.address
         }
 
-        return withContext(Dispatchers.Main) { // connect needs main thread or looper usually
+        return withContext(Dispatchers.Main) {
              try {
                  manager?.connect(wifiP2pChannel, config, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() {
-                        // Wait for CONNECTION_CHANGED_ACTION
-                    }
+                    override fun onSuccess() {}
 
                     override fun onFailure(reason: Int) {
-                        _connectionState.value = ConnectionState.Error(Exception("Connection initiation failed: "))
+                        _connectionState.value = ConnectionState.Error(Exception("Connection initiation failed: $reason"))
+                        connectedPeerId = null
                     }
                 })
                 Result.success(Unit)
              } catch (e: Exception) {
+                 connectedPeerId = null
                  Result.failure(e)
              }
         }
@@ -238,8 +257,7 @@ class WifiDirectTransport @Inject constructor(
                 val bytes = msg.toBytes()
 
                 synchronized(out) {
-                    out.writeInt(bytes.size)
-                    out.write(bytes)
+                    out.write(bytes) // toBytes includes Type
                     out.flush()
                 }
                 Result.success(Unit)
@@ -249,15 +267,29 @@ class WifiDirectTransport @Inject constructor(
         }
     }
 
-    // Special method to send raw handshake bytes (TransportMessage.Handshake)
     override suspend fun sendHandshake(message: TransportMessage.Handshake): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
                 val out = outputStream ?: return@withContext Result.failure(Exception("Not connected"))
                 val bytes = message.toBytes()
                 synchronized(out) {
-                    out.writeInt(bytes.size)
-                    out.write(bytes)
+                    out.write(bytes) // toBytes includes Type
+                    out.flush()
+                }
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    override suspend fun sendAttachment(message: TransportMessage.AttachmentChunk): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val out = outputStream ?: return@withContext Result.failure(Exception("Not connected"))
+                val bytes = message.toBytes()
+                synchronized(out) {
+                    out.write(bytes) // toBytes includes Type
                     out.flush()
                 }
                 Result.success(Unit)

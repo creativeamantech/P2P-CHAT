@@ -6,6 +6,7 @@ import com.example.p2pchat.core.model.Peer
 import com.example.p2pchat.core.model.PublicKeyBundle
 import com.example.p2pchat.core.network.ConnectionManager
 import com.example.p2pchat.core.network.ConnectionState
+import com.example.p2pchat.core.network.HandshakeManager
 import com.example.p2pchat.core.network.PeerDescriptor
 import com.example.p2pchat.core.storage.repository.PeerRepository
 import dagger.hilt.android.lifecycle.HiltViewModel

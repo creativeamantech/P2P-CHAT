@@ -10,6 +10,9 @@ interface CryptoManager {
     fun encrypt(plaintext: ByteArray, recipientPublicKey: ByteArray): ByteArray
     fun decrypt(ciphertext: ByteArray, senderPublicKey: ByteArray): ByteArray
 
+    // Key Agreement
+    fun calculateSharedSecret(remotePublicKey: ByteArray): ByteArray
+
     // Database Security
     fun getDatabasePassphrase(): ByteArray
 }
