@@ -24,6 +24,7 @@ class PeerRepository @Inject constructor(
                 ),
                 lastSeen = Instant.fromEpochMilliseconds(entity.lastSeen),
                 isTrusted = entity.isTrusted,
+                isVerified = entity.isVerified,
                 connectionHistory = emptyList()
             )
         }
@@ -39,8 +40,39 @@ class PeerRepository @Inject constructor(
                 certPem = peer.publicKey.certPem,
                 lastSeen = peer.lastSeen.toEpochMilliseconds(),
                 isTrusted = peer.isTrusted,
+                isVerified = peer.isVerified,
                 createdAt = System.currentTimeMillis()
             )
         )
+    }
+
+    suspend fun getPeer(peerId: String): Peer? {
+        val entity = peerDao.getPeerById(peerId) ?: return null
+        return Peer(
+            id = entity.id,
+            displayName = entity.displayName,
+            publicKey = PublicKeyBundle(
+                identityKey = entity.identityKey,
+                exchangeKey = entity.exchangeKey,
+                certPem = entity.certPem
+            ),
+            lastSeen = Instant.fromEpochMilliseconds(entity.lastSeen),
+            isTrusted = entity.isTrusted,
+            isVerified = entity.isVerified,
+            connectionHistory = emptyList()
+        )
+    }
+
+    suspend fun updateVerificationStatus(peerId: String, isVerified: Boolean) {
+        peerDao.updateVerification(peerId, isVerified)
+    }
+
+    // Keep the old name for compatibility if needed, but updateVerificationStatus is better
+    suspend fun setPeerVerified(peerId: String, isVerified: Boolean) {
+        peerDao.updateVerification(peerId, isVerified)
+    }
+
+    suspend fun getPeerById(peerId: String): Peer? {
+        return getPeer(peerId)
     }
 }

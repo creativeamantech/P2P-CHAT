@@ -8,6 +8,7 @@ data class Peer(
     val publicKey: PublicKeyBundle,
     val lastSeen: Instant,
     val isTrusted: Boolean,
+    val isVerified: Boolean = false,
     val connectionHistory: List<ConnectionRecord> = emptyList()
 )
 

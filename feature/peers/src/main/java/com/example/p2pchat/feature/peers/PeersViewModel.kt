@@ -23,6 +23,7 @@ sealed interface PeersUiState {
     object Loading : PeersUiState
     data class Success(
         val discoveredPeers: List<PeerDescriptor>,
+        val savedPeers: List<Peer>,
         val connectedPeerId: String?,
         val connectionState: ConnectionState
     ) : PeersUiState
@@ -40,18 +41,24 @@ class PeersViewModel @Inject constructor(
     private val discoveredPeers = connectionManager.discoverPeers()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    // Saved peers from DB
+    private val savedPeers = peerRepository.getAllPeers()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // Connection State from ConnectionManager
     private val connectionState = connectionManager.connectionState
 
     val uiState: StateFlow<PeersUiState> = combine(
         discoveredPeers,
+        savedPeers,
         connectionState
-    ) { peers, connState ->
-        if (peers.isEmpty() && connState is ConnectionState.Disconnected) {
+    ) { discovered, saved, connState ->
+        if (discovered.isEmpty() && saved.isEmpty() && connState is ConnectionState.Disconnected) {
             PeersUiState.Empty
         } else {
             PeersUiState.Success(
-                discoveredPeers = peers,
+                discoveredPeers = discovered,
+                savedPeers = saved,
                 connectedPeerId = if (connState is ConnectionState.Connected) "Connected" else null,
                 connectionState = connState
             )
@@ -64,15 +71,12 @@ class PeersViewModel @Inject constructor(
 
     fun connectToPeer(peer: PeerDescriptor) {
         viewModelScope.launch {
-            connectionManager.connect(peer)
-                .onSuccess {
-                    savePeerPlaceholder(peer)
-                    // Initiate handshake
-                    handshakeManager.initiateHandshake(peer.peerId)
-                }
-                .onFailure {
-                    // Handle error
-                }
+            val result = connectionManager.connect(peer)
+            if (result.isSuccess) {
+                savePeerPlaceholder(peer)
+                // Initiate handshake
+                handshakeManager.initiateHandshake(peer.peerId)
+            }
         }
     }
 
@@ -89,7 +93,8 @@ class PeersViewModel @Inject constructor(
                     displayName = descriptor.name,
                     publicKey = PublicKeyBundle(ik, ek, ""),
                     lastSeen = Clock.System.now(),
-                    isTrusted = true // Imported via QR/Link implies some trust
+                    isTrusted = true, // Imported via QR/Link implies some trust
+                    isVerified = false
                 )
                 peerRepository.addPeer(peer)
             } else {
@@ -100,12 +105,16 @@ class PeersViewModel @Inject constructor(
     }
 
     private suspend fun savePeerPlaceholder(peer: PeerDescriptor) {
+        // Check if exists
+        if (peerRepository.getPeer(peer.peerId) != null) return
+
         val placeholderPeer = Peer(
             id = peer.peerId,
             displayName = peer.name,
             publicKey = PublicKeyBundle(ByteArray(32), ByteArray(32), ""),
             lastSeen = Clock.System.now(),
-            isTrusted = false
+            isTrusted = false,
+            isVerified = false
         )
         peerRepository.addPeer(placeholderPeer)
     }

@@ -21,8 +21,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.p2pchat.core.model.Peer
 import com.example.p2pchat.core.network.ConnectionState
 import com.example.p2pchat.core.network.PeerDescriptor
 
@@ -30,7 +32,8 @@ import com.example.p2pchat.core.network.PeerDescriptor
 fun PeersRoute(
     viewModel: PeersViewModel = hiltViewModel(),
     initialLink: String? = null,
-    onNavigateToScan: () -> Unit
+    onNavigateToScan: () -> Unit,
+    onNavigateToDetails: (String) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -44,7 +47,8 @@ fun PeersRoute(
         uiState = uiState,
         onConnect = viewModel::connectToPeer,
         onDisconnect = viewModel::disconnect,
-        onScanQr = onNavigateToScan
+        onScanQr = onNavigateToScan,
+        onPeerClick = onNavigateToDetails
     )
 }
 
@@ -53,7 +57,8 @@ fun PeersScreen(
     uiState: PeersUiState,
     onConnect: (PeerDescriptor) -> Unit,
     onDisconnect: () -> Unit,
-    onScanQr: () -> Unit
+    onScanQr: () -> Unit,
+    onPeerClick: (String) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         when (uiState) {
@@ -61,46 +66,65 @@ fun PeersScreen(
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             }
             is PeersUiState.Empty, is PeersUiState.Success -> {
-                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                    // Actions
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween) {
-                        Button(onClick = onScanQr) {
-                            Text("Scan QR")
+                val successState = uiState as? PeersUiState.Success
+                val savedPeers = successState?.savedPeers ?: emptyList()
+                val discoveredPeers = successState?.discoveredPeers ?: emptyList()
+                val connectionState = successState?.connectionState ?: ConnectionState.Disconnected
+
+                LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                    item {
+                        // Actions
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween) {
+                            Button(onClick = onScanQr) {
+                                Text("Scan QR")
+                            }
                         }
-                    }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                    // Connection Status
-                    if (uiState is PeersUiState.Success) {
+                        // Connection Status
                         Text(
-                            text = "Connection Status: ${uiState.connectionState.javaClass.simpleName}",
+                            text = "Connection Status: ${connectionState.javaClass.simpleName}",
                             style = MaterialTheme.typography.titleMedium
                         )
-                        if (uiState.connectionState is ConnectionState.Connected) {
+                        if (connectionState is ConnectionState.Connected) {
                             Button(onClick = onDisconnect) {
                                 Text("Disconnect")
                             }
                         }
-                    } else {
-                        Text("Not Connected")
+
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    item {
+                         Text(
+                            text = "Saved Peers:",
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                    }
 
-                    Text(
-                        text = "Discovered Peers:",
-                        style = MaterialTheme.typography.titleLarge
-                    )
-
-                    if (uiState is PeersUiState.Success) {
-                        LazyColumn {
-                            items(uiState.discoveredPeers) { peer ->
-                                PeerItem(peer = peer, onConnect = onConnect)
-                            }
-                        }
+                    if (savedPeers.isEmpty()) {
+                        item { Text("No saved peers.") }
                     } else {
-                        Text("No peers found nearby.")
+                        items(savedPeers) { peer ->
+                            SavedPeerItem(peer = peer, onClick = { onPeerClick(peer.id) })
+                        }
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Discovered Peers:",
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                    }
+
+                    if (discoveredPeers.isEmpty()) {
+                        item { Text("No peers found nearby.") }
+                    } else {
+                        items(discoveredPeers) { peer ->
+                            PeerItem(peer = peer, onConnect = onConnect)
+                        }
                     }
                 }
             }
@@ -121,5 +145,25 @@ fun PeerItem(
     ) {
         Text(text = peer.name, style = MaterialTheme.typography.bodyLarge)
         Text(text = peer.peerId, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+fun SavedPeerItem(
+    peer: Peer,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable { onClick() }
+            .padding(16.dp)
+    ) {
+        Text(text = peer.displayName, style = MaterialTheme.typography.bodyLarge)
+        Text(
+            text = if (peer.isVerified) "Verified" else "Unverified",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (peer.isVerified) Color.Green else Color.Red
+        )
     }
 }

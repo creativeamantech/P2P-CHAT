@@ -13,6 +13,7 @@ data class PeerEntity(
     @ColumnInfo(name = "cert_pem") val certPem: String,
     @ColumnInfo(name = "last_seen") val lastSeen: Long,
     @ColumnInfo(name = "is_trusted") val isTrusted: Boolean,
+    @ColumnInfo(name = "is_verified") val isVerified: Boolean = false, // Added
     @ColumnInfo(name = "created_at") val createdAt: Long
 ) {
     override fun equals(other: Any?): Boolean {
@@ -28,6 +29,7 @@ data class PeerEntity(
         if (certPem != other.certPem) return false
         if (lastSeen != other.lastSeen) return false
         if (isTrusted != other.isTrusted) return false
+        if (isVerified != other.isVerified) return false
         if (createdAt != other.createdAt) return false
 
         return true
@@ -41,6 +43,7 @@ data class PeerEntity(
         result = 31 * result + certPem.hashCode()
         result = 31 * result + lastSeen.hashCode()
         result = 31 * result + isTrusted.hashCode()
+        result = 31 * result + isVerified.hashCode()
         result = 31 * result + createdAt.hashCode()
         return result
     }

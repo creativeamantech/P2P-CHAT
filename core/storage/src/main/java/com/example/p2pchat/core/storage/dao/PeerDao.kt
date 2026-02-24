@@ -14,4 +14,10 @@ interface PeerDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPeer(peer: PeerEntity)
+
+    @Query("SELECT * FROM peers WHERE id = :peerId")
+    suspend fun getPeerById(peerId: String): PeerEntity?
+
+    @Query("UPDATE peers SET is_verified = :isVerified WHERE id = :peerId")
+    suspend fun updateVerification(peerId: String, isVerified: Boolean)
 }

@@ -20,7 +20,7 @@ import net.sqlcipher.database.SupportFactory
         MessageFtsEntity::class,
         OutboxEntity::class
     ],
-    version = 3, // Bump version
+    version = 4, // Bump version
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
