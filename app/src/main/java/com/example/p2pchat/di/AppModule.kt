@@ -61,5 +61,13 @@ abstract class AppModule {
         @Provides
         @Singleton
         fun provideOutboxDao(db: AppDatabase): OutboxDao = db.outboxDao()
+
+        @Provides
+        @Singleton
+        fun provideAttachmentDao(db: AppDatabase): AttachmentDao = db.attachmentDao()
+
+        @Provides
+        @Singleton
+        fun provideMessageDaoWithAttachments(db: AppDatabase): MessageDaoWithAttachments = db.messageDaoWithAttachments()
     }
 }

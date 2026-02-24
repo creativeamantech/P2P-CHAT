@@ -1,14 +1,18 @@
 package com.example.p2pchat.feature.messaging
 
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.p2pchat.core.crypto.ratchet.RatchetManager
+import com.example.p2pchat.core.model.Attachment
 import com.example.p2pchat.core.model.DeliveryState
 import com.example.p2pchat.core.model.Message
 import com.example.p2pchat.core.network.ConnectionManager
 import com.example.p2pchat.core.network.EncryptedPayload
+import com.example.p2pchat.core.storage.entity.AttachmentEntity
 import com.example.p2pchat.core.storage.entity.MessageEntity
+import com.example.p2pchat.core.storage.repository.AttachmentRepository
 import com.example.p2pchat.core.storage.repository.MessageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,6 +33,7 @@ sealed interface MessagingUiState {
 @HiltViewModel
 class MessagingViewModel @Inject constructor(
     private val messageRepository: MessageRepository,
+    private val attachmentRepository: AttachmentRepository,
     private val ratchetManager: RatchetManager,
     private val connectionManager: ConnectionManager,
     savedStateHandle: SavedStateHandle
@@ -37,11 +42,23 @@ class MessagingViewModel @Inject constructor(
     private val threadId: String = checkNotNull(savedStateHandle["threadId"])
     private val peerId: String = threadId
 
-    val uiState: StateFlow<MessagingUiState> = messageRepository.observeThread(threadId)
-        .map { entities ->
-            val messages = entities.mapNotNull { entity ->
+    val uiState: StateFlow<MessagingUiState> = messageRepository.observeThreadWithAttachments(threadId)
+        .map { messagesWithAttachments ->
+            val messages = messagesWithAttachments.mapNotNull { item ->
                 try {
+                    val entity = item.message
+                    val attachmentEntities = item.attachments
                     val clearText = String(entity.encryptedContent)
+
+                    val attachments = attachmentEntities.map {
+                        Attachment(
+                            id = it.id,
+                            type = it.type,
+                            size = it.size,
+                            filename = it.filename,
+                            uri = it.uri
+                        )
+                    }
 
                     Message(
                         id = entity.id,
@@ -52,7 +69,7 @@ class MessagingViewModel @Inject constructor(
                         iv = entity.iv,
                         clearTextCache = clearText,
                         topics = emptySet(),
-                        attachments = emptyList(),
+                        attachments = attachments,
                         sentAt = kotlinx.datetime.Instant.fromEpochMilliseconds(entity.sentAt),
                         deliveryState = DeliveryState.Pending,
                         reactions = emptyMap()
@@ -69,32 +86,6 @@ class MessagingViewModel @Inject constructor(
             initialValue = MessagingUiState.Loading
         )
 
-    init {
-        viewModelScope.launch {
-            connectionManager.incomingMessages.collect { payload ->
-                try {
-                    val plaintext = ratchetManager.decrypt(peerId, payload.data)
-                    val now = Clock.System.now().toEpochMilliseconds()
-                    val messageEntity = MessageEntity(
-                        id = UUID.randomUUID().toString(),
-                        threadId = threadId,
-                        parentMessageId = null,
-                        senderId = peerId,
-                        encryptedContent = plaintext,
-                        iv = ByteArray(12),
-                        sentAt = now,
-                        deliveryState = "DELIVERED",
-                        deliveredAt = now,
-                        readAt = null
-                    )
-                    messageRepository.saveMessage(messageEntity)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        }
-    }
-
     fun sendMessage(text: String, parentId: String? = null) {
         if (text.isBlank()) return
 
@@ -107,10 +98,8 @@ class MessagingViewModel @Inject constructor(
             try {
                 val ciphertext = ratchetManager.encrypt(peerId, plaintext)
 
-                // Use ConnectionManager which handles Outbox logic
                 connectionManager.sendMessage(peerId, EncryptedPayload(ciphertext))
 
-                // Optimistic UI update
                 val messageEntity = MessageEntity(
                     id = messageId,
                     threadId = threadId,
@@ -119,7 +108,7 @@ class MessagingViewModel @Inject constructor(
                     encryptedContent = plaintext,
                     iv = ByteArray(12),
                     sentAt = now,
-                    deliveryState = "SENT", // Actually "Queued" in real terms
+                    deliveryState = "SENT",
                     deliveredAt = null,
                     readAt = null
                 )
@@ -127,6 +116,48 @@ class MessagingViewModel @Inject constructor(
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+        }
+    }
+
+    fun sendImage(uri: Uri) {
+        viewModelScope.launch {
+            // 1. Save attachment locally
+            val file = attachmentRepository.saveAttachment(uri) ?: return@launch
+
+            // 2. Create Attachment Entity
+            val attachmentId = UUID.randomUUID().toString()
+            val attachmentEntity = AttachmentEntity(
+                id = attachmentId,
+                messageId = "", // Will update later
+                type = "image/jpeg", // Simplified
+                size = file.length(),
+                filename = file.name,
+                uri = file.absolutePath // Store local path
+            )
+
+            // 3. Create Message
+            val now = Clock.System.now().toEpochMilliseconds()
+            val messageId = UUID.randomUUID().toString()
+            val messageEntity = MessageEntity(
+                id = messageId,
+                threadId = threadId,
+                parentMessageId = null,
+                senderId = "local_peer",
+                encryptedContent = "[Image Attachment]".toByteArray(),
+                iv = ByteArray(12),
+                sentAt = now,
+                deliveryState = "SENT",
+                deliveredAt = null,
+                readAt = null
+            )
+
+            // 4. Save both
+            messageRepository.saveMessage(messageEntity)
+            messageRepository.saveAttachment(attachmentEntity.copy(messageId = messageId))
+
+            // 5. Send (Placeholder)
+            val ciphertext = ratchetManager.encrypt(peerId, "[Image Attachment]".toByteArray())
+            connectionManager.sendMessage(peerId, EncryptedPayload(ciphertext))
         }
     }
 

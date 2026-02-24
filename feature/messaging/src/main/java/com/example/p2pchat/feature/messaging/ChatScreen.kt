@@ -1,5 +1,8 @@
 package com.example.p2pchat.feature.messaging
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -8,10 +11,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -37,6 +42,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
 import com.example.p2pchat.core.model.Message
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -46,6 +52,14 @@ fun ChatScreen(
     onBackClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.sendImage(uri)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -63,7 +77,8 @@ fun ChatScreen(
             modifier = Modifier.padding(paddingValues),
             uiState = uiState,
             onSendMessage = { text, parentId -> viewModel.sendMessage(text, parentId) },
-            onTagMessage = { id, topic -> viewModel.tagMessage(id, topic) }
+            onTagMessage = { id, topic -> viewModel.tagMessage(id, topic) },
+            onPickImage = { imagePickerLauncher.launch("image/*") }
         )
     }
 }
@@ -73,7 +88,8 @@ fun ChatContent(
     modifier: Modifier = Modifier,
     uiState: MessagingUiState,
     onSendMessage: (String, String?) -> Unit,
-    onTagMessage: (String, String) -> Unit
+    onTagMessage: (String, String) -> Unit,
+    onPickImage: () -> Unit
 ) {
     var replyingToMessageId by remember { mutableStateOf<String?>(null) }
     var taggingMessageId by remember { mutableStateOf<String?>(null) }
@@ -113,7 +129,8 @@ fun ChatContent(
             onSendMessage = { text ->
                 onSendMessage(text, replyingToMessageId)
                 replyingToMessageId = null
-            }
+            },
+            onPickImage = onPickImage
         )
     }
 }
@@ -153,6 +170,23 @@ fun MessageItem(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+
+        // Image Attachments
+        if (message.attachments.isNotEmpty()) {
+            message.attachments.forEach { attachment ->
+                if (attachment.type.startsWith("image/")) {
+                    AsyncImage(
+                        model = attachment.uri,
+                        contentDescription = "Image attachment",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                }
+            }
+        }
+
         Text(
             text = message.clearTextCache ?: "[Encrypted]",
             style = MaterialTheme.typography.bodyMedium
@@ -169,10 +203,16 @@ fun MessageItem(
 }
 
 @Composable
-fun MessageInput(onSendMessage: (String) -> Unit) {
+fun MessageInput(
+    onSendMessage: (String) -> Unit,
+    onPickImage: () -> Unit
+) {
     var text by remember { mutableStateOf("") }
 
-    Row(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+    Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onPickImage) {
+            Icon(Icons.Default.Add, contentDescription = "Add Attachment")
+        }
         TextField(
             value = text,
             onValueChange = { text = it },
