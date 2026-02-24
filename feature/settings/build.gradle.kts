@@ -42,6 +42,9 @@ dependencies {
     implementation(project(":core:storage"))
     implementation(project(":core:crypto"))
     implementation(project(":core:ui"))
+    // Peers dependency for ChatAddressHelper
+    implementation(project(":feature:peers"))
+    implementation("com.google.zxing:core:3.5.3")
     implementation("com.google.dagger:hilt-android:2.50")
     ksp("com.google.dagger:hilt-android-compiler:2.50")
     val composeBom = platform("androidx.compose:compose-bom:2024.02.00")

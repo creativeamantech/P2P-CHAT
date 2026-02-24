@@ -22,22 +22,54 @@ import com.example.p2pchat.feature.peers.PeersRoute
 import com.example.p2pchat.feature.settings.CreateIdentityRoute
 import dagger.hilt.android.AndroidEntryPoint
 
+import android.content.Intent
+import com.example.p2pchat.feature.peers.ChatAddressHelper
+import com.example.p2pchat.feature.peers.PeersViewModel
+import javax.inject.Inject
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    // Inject PeersViewModel to handle new peer addition directly if needed,
+    // or we can just rely on the UI to handle it via navigation arguments?
+    // ViewModel is typically scoped to navigation graph or activity.
+    // Let's use a MainViewModel or just handle intent in onCreate and pass to Compose.
+
+    // Better: Handle in MainViewModel which is already injected.
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            P2PChatAppContent()
+
+        // Handle Deep Link
+        val data = intent?.data
+        if (data != null && data.scheme == "p2pchat" && data.host == "peer") {
+            // Process in ViewModel
+            // But MainViewModel is for startup logic.
+            // We should navigate to Peers screen or a "New Peer" dialog.
         }
+
+        setContent {
+            P2PChatAppContent(initialLink = intent?.data?.toString())
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // Re-compose or handle new intent
     }
 }
 
 @Composable
 fun P2PChatAppContent(
-    viewModel: MainViewModel = hiltViewModel()
+    viewModel: MainViewModel = hiltViewModel(),
+    initialLink: String? = null
 ) {
     val navController = rememberNavController()
     val startDestination by viewModel.startDestination.collectAsState()
+
+    // TODO: Handle initialLink in PeersViewModel or similar
+    // For now, we just let the app start.
 
     if (startDestination == null) {
         Box(modifier = Modifier.fillMaxSize()) {

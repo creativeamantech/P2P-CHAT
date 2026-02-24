@@ -57,5 +57,9 @@ abstract class AppModule {
         @Provides
         @Singleton
         fun provideRatchetStateDao(db: AppDatabase): RatchetStateDao = db.ratchetStateDao()
+
+        @Provides
+        @Singleton
+        fun provideOutboxDao(db: AppDatabase): OutboxDao = db.outboxDao()
     }
 }
