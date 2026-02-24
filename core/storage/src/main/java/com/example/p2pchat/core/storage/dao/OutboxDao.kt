@@ -20,4 +20,7 @@ interface OutboxDao {
 
     @Query("DELETE FROM outbox WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("SELECT DISTINCT peer_id FROM outbox")
+    suspend fun getPeersWithPendingMessages(): List<String>
 }

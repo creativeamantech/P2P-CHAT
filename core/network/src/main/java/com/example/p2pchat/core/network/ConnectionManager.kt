@@ -1,22 +1,29 @@
 package com.example.p2pchat.core.network
 
+import android.content.Context
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.example.p2pchat.core.storage.repository.PersistentMessageQueue
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class ConnectionManager @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val wifiDirectTransport: WifiDirectTransport,
     private val bluetoothTransport: BluetoothTransport,
     private val messageQueue: PersistentMessageQueue
@@ -24,8 +31,6 @@ class ConnectionManager @Inject constructor(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // Aggregated Connection State
-    // Simplified: logical OR of transports.
-    // Ideally map: PeerId -> Transport
     private val activeTransports = ConcurrentHashMap<String, P2PTransport>()
 
     val connectionState: Flow<ConnectionState> = combine(
@@ -49,17 +54,40 @@ class ConnectionManager @Inject constructor(
     )
 
     init {
+        // Schedule WorkManager
+        scheduleMessageFlush()
+
         // Monitor connections to flush queue
         scope.launch {
             connectionState.collect { state ->
                 if (state is ConnectionState.Connected) {
-                    // Flush queue for connected peer
-                    // Current P2PTransport impl doesn't expose WHO is connected easily in state.
-                    // Assuming 1:1 connection for MVP.
-                    flushQueue("peer_id_placeholder")
+                    // Try to flush for connected peers
+                    // Since we don't have exact peer ID in state, we rely on activeTransports map
+                    // or just iterate known peers with pending messages.
+                    val pendingPeers = messageQueue.getPeersWithPendingMessages()
+                    for (peerId in pendingPeers) {
+                        flushQueue(peerId)
+                    }
                 }
             }
         }
+    }
+
+    private fun scheduleMessageFlush() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED) // For WebRTC later, or generally connectivity
+            .build()
+
+        val workRequest = PeriodicWorkRequestBuilder<MessageFlushWorker>(15, TimeUnit.MINUTES)
+            .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            "MessageFlush",
+            ExistingPeriodicWorkPolicy.KEEP,
+            workRequest
+        )
     }
 
     suspend fun connect(peerDescriptor: PeerDescriptor): Result<Unit> {
@@ -95,12 +123,14 @@ class ConnectionManager @Inject constructor(
         flushQueue(peerId)
     }
 
-    private suspend fun flushQueue(peerId: String) {
+    suspend fun flushQueue(peerId: String) {
         val transport = getActiveTransport(peerId) ?: return // Not connected
 
         val pending = messageQueue.getPendingForPeer(peerId)
         for (msg in pending) {
-            val result = transport.send(EncryptedPayload(msg.payload))
+            // Re-wrap in EncryptedPayload
+            val payload = EncryptedPayload(msg.payload, senderId = null) // SenderId filled on receive
+            val result = transport.send(payload)
             if (result.isSuccess) {
                 messageQueue.remove(msg.id)
             } else {
@@ -110,10 +140,14 @@ class ConnectionManager @Inject constructor(
     }
 
     private fun getActiveTransport(peerId: String): P2PTransport? {
-        // For MVP, if we are connected via any transport, we assume it's to the active peer.
-        // Real implementation requires transport to report connected Peer ID.
+        // Check active map
+        if (activeTransports.containsKey(peerId)) return activeTransports[peerId]
+
+        // Fallback checks (e.g. if we connected but map update lagged or simplified logic)
+        // For MVP assuming 1:1, return any connected transport
         if (wifiDirectTransport.connectionState.value is ConnectionState.Connected) return wifiDirectTransport
         if (bluetoothTransport.connectionState.value is ConnectionState.Connected) return bluetoothTransport
+
         return null
     }
 
@@ -123,7 +157,6 @@ class ConnectionManager @Inject constructor(
             wifiDirectTransport.discoverPeers(),
             bluetoothTransport.discoverPeers()
         ) { wifiPeers, btPeers ->
-            // Deduplicate by ID?
             (wifiPeers + btPeers).distinctBy { it.peerId }
         }
     }

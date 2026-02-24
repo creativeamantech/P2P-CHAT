@@ -250,7 +250,7 @@ class WifiDirectTransport @Inject constructor(
     }
 
     // Special method to send raw handshake bytes (TransportMessage.Handshake)
-    suspend fun sendHandshake(message: TransportMessage.Handshake): Result<Unit> {
+    override suspend fun sendHandshake(message: TransportMessage.Handshake): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
                 val out = outputStream ?: return@withContext Result.failure(Exception("Not connected"))

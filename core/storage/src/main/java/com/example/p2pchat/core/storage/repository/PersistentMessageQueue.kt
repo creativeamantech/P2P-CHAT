@@ -24,4 +24,8 @@ class PersistentMessageQueue @Inject constructor(
     suspend fun remove(id: Long) {
         outboxDao.deleteById(id)
     }
+
+    suspend fun getPeersWithPendingMessages(): List<String> {
+        return outboxDao.getPeersWithPendingMessages()
+    }
 }
