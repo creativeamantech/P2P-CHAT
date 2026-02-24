@@ -33,6 +33,7 @@ android {
 
 dependencies {
     implementation(project(":core:model"))
+    implementation(project(":core:storage"))
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("org.bouncycastle:bcprov-jdk18on:1.77")
     implementation("net.zetetic:android-database-sqlcipher:4.5.4")

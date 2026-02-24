@@ -157,7 +157,29 @@ class WifiDirectTransport @Inject constructor(
                     val length = inputStream?.readInt() ?: break
                     val bytes = ByteArray(length)
                     inputStream?.readFully(bytes)
-                    incomingMessages.send(EncryptedPayload(bytes))
+
+                    // Parse TransportMessage
+                    // In real app, we handle handshake packets here internally
+                    // and only expose Payload to the Flow once handshake is done.
+                    // For MVP Phase 2, we just pass bytes.
+                    // But now we defined TransportMessage.
+
+                    try {
+                        val message = TransportMessage.fromBytes(bytes)
+                        when (message) {
+                            is TransportMessage.Handshake -> {
+                                // TODO: Handle Handshake (Delegate to ConnectionManager or higher level)
+                                // For now, we expose it wrapped as EncryptedPayload just to pass data up
+                                // This assumes upper layer handles handshake
+                                incomingMessages.send(EncryptedPayload(bytes))
+                            }
+                            is TransportMessage.Chat -> {
+                                incomingMessages.send(EncryptedPayload(message.payload))
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("P2P", "Parse error", e)
+                    }
                 }
             } catch (e: IOException) {
                 Log.e("P2P", "Receive error", e)
@@ -210,9 +232,32 @@ class WifiDirectTransport @Inject constructor(
         return withContext(Dispatchers.IO) {
             try {
                 val out = outputStream ?: return@withContext Result.failure(Exception("Not connected"))
+
+                // Wrap in TransportMessage.Chat
+                val msg = TransportMessage.Chat(payload.data)
+                val bytes = msg.toBytes()
+
                 synchronized(out) {
-                    out.writeInt(payload.data.size)
-                    out.write(payload.data)
+                    out.writeInt(bytes.size)
+                    out.write(bytes)
+                    out.flush()
+                }
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    // Special method to send raw handshake bytes (TransportMessage.Handshake)
+    suspend fun sendHandshake(message: TransportMessage.Handshake): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val out = outputStream ?: return@withContext Result.failure(Exception("Not connected"))
+                val bytes = message.toBytes()
+                synchronized(out) {
+                    out.writeInt(bytes.size)
+                    out.write(bytes)
                     out.flush()
                 }
                 Result.success(Unit)
