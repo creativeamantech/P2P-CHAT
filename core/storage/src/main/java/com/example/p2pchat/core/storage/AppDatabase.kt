@@ -16,9 +16,10 @@ import net.sqlcipher.database.SupportFactory
         MessageTopicCrossRef::class,
         PeerEntity::class,
         RatchetStateEntity::class,
-        ThreadParticipantEntity::class
+        ThreadParticipantEntity::class,
+        MessageFtsEntity::class
     ],
-    version = 1,
+    version = 2, // Bump version
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -33,6 +34,7 @@ abstract class AppDatabase : RoomDatabase() {
             val factory = SupportFactory(passphrase)
             return Room.databaseBuilder(context, AppDatabase::class.java, "p2pchat.db")
                 .openHelperFactory(factory)
+                .fallbackToDestructiveMigration() // For MVP simplicity
                 .build()
         }
     }
