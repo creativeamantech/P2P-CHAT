@@ -69,5 +69,9 @@ abstract class AppModule {
         @Provides
         @Singleton
         fun provideMessageDaoWithAttachments(db: AppDatabase): MessageDaoWithAttachments = db.messageDaoWithAttachments()
+
+        @Provides
+        @Singleton
+        fun provideIdentityDao(db: AppDatabase): IdentityDao = db.identityDao()
     }
 }

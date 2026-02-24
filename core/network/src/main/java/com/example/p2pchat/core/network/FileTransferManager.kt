@@ -29,7 +29,7 @@ class FileTransferManager @Inject constructor(
     ) = withContext(Dispatchers.IO) {
         try {
             val totalSize = file.length()
-            val totalChunks = (totalSize / CHUNK_SIZE).toInt() + 1
+            val totalChunks = if (totalSize > 0) ((totalSize + CHUNK_SIZE - 1) / CHUNK_SIZE).toInt() else 0
 
             file.inputStream().use { input ->
                 val buffer = ByteArray(CHUNK_SIZE)

@@ -19,9 +19,10 @@ import net.sqlcipher.database.SupportFactory
         ThreadParticipantEntity::class,
         MessageFtsEntity::class,
         OutboxEntity::class,
-        AttachmentEntity::class
+        AttachmentEntity::class,
+        IdentityEntity::class // Added
     ],
-    version = 5,
+    version = 6, // Bump version
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -32,7 +33,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun ratchetStateDao(): RatchetStateDao
     abstract fun outboxDao(): OutboxDao
     abstract fun attachmentDao(): AttachmentDao
-    abstract fun messageDaoWithAttachments(): MessageDaoWithAttachments // Added
+    abstract fun messageDaoWithAttachments(): MessageDaoWithAttachments
+    abstract fun identityDao(): IdentityDao // Added
 
     companion object {
         fun create(context: Context, passphrase: ByteArray): AppDatabase {
