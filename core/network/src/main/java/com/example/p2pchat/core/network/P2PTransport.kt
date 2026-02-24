@@ -13,6 +13,12 @@ interface P2PTransport {
     // Connection
     suspend fun connect(peerDescriptor: PeerDescriptor): Result<Unit>
     suspend fun send(payload: EncryptedPayload): Result<Unit>
+
+    // Explicitly allow routing by PeerID for multiplexed transports (like Tor)
+    suspend fun send(payload: EncryptedPayload, peerId: String?): Result<Unit> {
+        return send(payload) // Default implementation ignores peerId
+    }
+
     suspend fun sendHandshake(message: TransportMessage.Handshake): Result<Unit>
     suspend fun sendAttachment(message: TransportMessage.AttachmentChunk): Result<Unit> // Added
     fun receive(): Flow<EncryptedPayload>

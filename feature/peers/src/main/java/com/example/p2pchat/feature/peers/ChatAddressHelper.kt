@@ -10,20 +10,24 @@ object ChatAddressHelper {
     private const val SCHEME = "p2pchat"
     private const val HOST = "peer"
 
-    fun generateAddress(identity: UserIdentity, signer: (ByteArray) -> ByteArray): String {
+    fun generateAddress(identity: UserIdentity, onionAddress: String? = null, signer: (ByteArray) -> ByteArray): String {
         val ik = Base64.encodeToString(identity.ed25519PublicKey, Base64.NO_WRAP)
         val ek = Base64.encodeToString(identity.x25519PublicKey, Base64.NO_WRAP)
 
         // Build base URI (data to be signed)
-        val baseUri = Uri.Builder()
+        val builder = Uri.Builder()
             .scheme(SCHEME)
             .authority(HOST)
             .appendPath(identity.userId)
             .appendQueryParameter("name", identity.displayName)
             .appendQueryParameter("ik", ik)
             .appendQueryParameter("ek", ek)
-            .build()
-            .toString()
+
+        if (onionAddress != null) {
+            builder.appendQueryParameter("relay", onionAddress)
+        }
+
+        val baseUri = builder.build().toString()
 
         val signature = signer(baseUri.toByteArray())
         val sigString = Base64.encodeToString(signature, Base64.NO_WRAP)

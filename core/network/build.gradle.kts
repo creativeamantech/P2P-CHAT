@@ -47,6 +47,10 @@ dependencies {
     implementation("androidx.hilt:hilt-work:1.1.0")
     ksp("androidx.hilt:hilt-compiler:1.1.0")
 
+    // Tor
+    implementation("info.guardianproject:tor-android:0.4.8.7")
+    implementation("info.guardianproject:jtorctl:0.4.5.7")
+
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")

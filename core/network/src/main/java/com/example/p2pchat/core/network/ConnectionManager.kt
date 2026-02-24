@@ -24,11 +24,14 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
+import com.example.p2pchat.core.network.tor.TorTransport
+
 @Singleton
 class ConnectionManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val wifiDirectTransport: WifiDirectTransport,
     private val bluetoothTransport: BluetoothTransport,
+    private val torTransport: TorTransport,
     private val messageQueue: PersistentMessageQueue,
     private val mixNetworkLayer: MixNetworkLayer,
     private val coverTrafficManager: CoverTrafficManager
@@ -41,13 +44,16 @@ class ConnectionManager @Inject constructor(
 
     val connectionState: Flow<ConnectionState> = combine(
         wifiDirectTransport.connectionState,
-        bluetoothTransport.connectionState
-    ) { wifiState, btState ->
+        bluetoothTransport.connectionState,
+        torTransport.connectionState
+    ) { wifiState, btState, torState ->
         if (wifiState is ConnectionState.Connected) {
             wifiState
         } else if (btState is ConnectionState.Connected) {
             btState
-        } else if (wifiState is ConnectionState.Connecting || btState is ConnectionState.Connecting) {
+        } else if (torState is ConnectionState.Connected) {
+            torState
+        } else if (wifiState is ConnectionState.Connecting || btState is ConnectionState.Connecting || torState is ConnectionState.Connecting) {
             ConnectionState.Connecting
         } else {
             ConnectionState.Disconnected
@@ -56,7 +62,8 @@ class ConnectionManager @Inject constructor(
 
     val incomingMessages: Flow<EncryptedPayload> = merge(
         wifiDirectTransport.receive(),
-        bluetoothTransport.receive()
+        bluetoothTransport.receive(),
+        torTransport.receive()
     )
 
     init {
@@ -97,7 +104,19 @@ class ConnectionManager @Inject constructor(
     }
 
     suspend fun connect(peerDescriptor: PeerDescriptor): Result<Unit> {
-        // Priority: WiFi > Bluetooth
+        // Check for Onion Address (Tor)
+        if (peerDescriptor.address?.endsWith(".onion") == true) {
+            val torResult = torTransport.connect(peerDescriptor)
+            if (torResult.isSuccess) {
+                activeTransports[peerDescriptor.peerId] = torTransport
+                return torResult
+            }
+            // If Tor fails, and we have no other transports, fail.
+            // Assuming no multi-homing fallback between Onion and Wifi Direct unless addresses match.
+            return torResult
+        }
+
+        // Priority: WiFi > Bluetooth (Local)
         // Try WiFi first
         val wifiResult = wifiDirectTransport.connect(peerDescriptor)
         if (wifiResult.isSuccess) {
@@ -118,6 +137,7 @@ class ConnectionManager @Inject constructor(
     suspend fun disconnect() {
         wifiDirectTransport.disconnect()
         bluetoothTransport.disconnect()
+        torTransport.disconnect()
         activeTransports.clear()
     }
 
@@ -160,7 +180,8 @@ class ConnectionManager @Inject constructor(
                 messageQueue.remove(msg.id)
             } else {
                 // Direct Send
-                val result = transport.send(payload)
+                // Use routed send if supported (Tor) or default send (Wifi/BT)
+                val result = transport.send(payload, peerId)
                 if (result.isSuccess) {
                     messageQueue.remove(msg.id)
                 } else {
