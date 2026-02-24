@@ -99,7 +99,7 @@ class HandshakeManager @Inject constructor(
 
             // Initialize Ratchet as Bob
             try {
-                ratchetManager.initializeSessionAsBob(peerId, sharedSecret, theirEphPub)
+                ratchetManager.initializeSessionAsBob(peerId, sharedSecret, theirEphPub, myEphB)
                 Log.d("Handshake", "Bob session initialized for $peerId")
             } catch (e: Exception) {
                 Log.e("Handshake", "Failed to init Bob", e)

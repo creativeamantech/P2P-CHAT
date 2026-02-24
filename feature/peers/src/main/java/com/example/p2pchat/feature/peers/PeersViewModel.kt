@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.p2pchat.core.model.Peer
 import com.example.p2pchat.core.model.PublicKeyBundle
 import com.example.p2pchat.core.network.ConnectionManager
+import com.example.p2pchat.core.crypto.IdentityManager
 import com.example.p2pchat.core.network.ConnectionState
 import com.example.p2pchat.core.network.HandshakeManager
 import com.example.p2pchat.core.network.PeerDescriptor
@@ -35,7 +36,8 @@ sealed interface PeersUiState {
 class PeersViewModel @Inject constructor(
     private val connectionManager: ConnectionManager,
     private val peerRepository: PeerRepository,
-    private val handshakeManager: HandshakeManager
+    private val handshakeManager: HandshakeManager,
+    private val identityManager: IdentityManager
 ) : ViewModel() {
 
     // Discover peers from ConnectionManager (Aggregated)
@@ -83,18 +85,43 @@ class PeersViewModel @Inject constructor(
 
     fun importPeer(address: String) {
         val descriptor = ChatAddressHelper.parseAddress(address) ?: return
-        val keys = ChatAddressHelper.extractKeys(address)
+
+        // Verify signature if present
+        val isSignatureValid = if (descriptor.signature != null && descriptor.identityKey != null) {
+            ChatAddressHelper.verifySignature(address) { data, sig, key ->
+                identityManager.verify(data, sig, key)
+            }
+        } else {
+            false
+        }
 
         viewModelScope.launch {
-            if (keys != null) {
-                // We have their keys!
-                val (ik, ek) = keys
+            if (descriptor.identityKey != null && descriptor.exchangeKey != null && isSignatureValid) {
+                // We have their keys and signature is valid!
                 val peer = Peer(
                     id = descriptor.peerId,
                     displayName = descriptor.name,
-                    publicKey = PublicKeyBundle(ik, ek, ""),
+                    publicKey = PublicKeyBundle(descriptor.identityKey!!, descriptor.exchangeKey!!, ""),
                     lastSeen = Clock.System.now(),
-                    isTrusted = true, // Imported via QR/Link implies some trust
+                    isTrusted = true,
+                    isVerified = true // Verified because signature matches identity key (Self-authenticating)
+                )
+                peerRepository.addPeer(peer)
+
+                // Also update descriptor in ConnectionManager if needed?
+                // ConnectionManager uses PeerRepository mostly.
+
+                // Try to connect immediately?
+                connectToPeer(descriptor)
+            } else if (descriptor.identityKey != null) {
+                 // Keys present but signature invalid/missing
+                 // Treat as unverified
+                 val peer = Peer(
+                    id = descriptor.peerId,
+                    displayName = descriptor.name,
+                    publicKey = PublicKeyBundle(descriptor.identityKey!!, descriptor.exchangeKey ?: ByteArray(32), ""),
+                    lastSeen = Clock.System.now(),
+                    isTrusted = false,
                     isVerified = false
                 )
                 peerRepository.addPeer(peer)

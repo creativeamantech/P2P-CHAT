@@ -35,11 +35,12 @@ class RatchetManager @Inject constructor(
     suspend fun initializeSessionAsBob(
         peerId: String,
         sharedSecret: ByteArray,
-        alicePublicKey: ByteArray // Currently unused in engine init for Bob, but good to have
+        alicePublicKey: ByteArray, // Currently unused in engine init for Bob, but good to have
+        myKeyPair: RatchetSessionState.KeyPair
     ) {
         mutex.withLock {
             val alicePubParams = X25519PublicKeyParameters(alicePublicKey, 0)
-            val sessionState = ratchetEngine.initializeBob(sharedSecret, alicePubParams)
+            val sessionState = ratchetEngine.initializeBob(sharedSecret, alicePubParams, myKeyPair)
             saveState(peerId, sessionState)
         }
     }

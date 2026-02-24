@@ -29,8 +29,49 @@ sealed class ConnectionState {
 data class PeerDescriptor(
     val peerId: String,
     val name: String,
-    val address: String? = null // IP, MAC, etc.
-)
+    val address: String? = null, // IP, MAC, onion, etc.
+    val identityKey: ByteArray? = null, // Ed25519 Public Key
+    val exchangeKey: ByteArray? = null, // X25519 Public Key
+    val relay: String? = null, // STUN/TURN server or relay URL
+    val signature: ByteArray? = null // Signature of the descriptor data
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as PeerDescriptor
+
+        if (peerId != other.peerId) return false
+        if (name != other.name) return false
+        if (address != other.address) return false
+        if (identityKey != null) {
+            if (other.identityKey == null) return false
+            if (!identityKey.contentEquals(other.identityKey)) return false
+        } else if (other.identityKey != null) return false
+        if (exchangeKey != null) {
+            if (other.exchangeKey == null) return false
+            if (!exchangeKey.contentEquals(other.exchangeKey)) return false
+        } else if (other.exchangeKey != null) return false
+        if (relay != other.relay) return false
+        if (signature != null) {
+            if (other.signature == null) return false
+            if (!signature.contentEquals(other.signature)) return false
+        } else if (other.signature != null) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = peerId.hashCode()
+        result = 31 * result + name.hashCode()
+        result = 31 * result + (address?.hashCode() ?: 0)
+        result = 31 * result + (identityKey?.contentHashCode() ?: 0)
+        result = 31 * result + (exchangeKey?.contentHashCode() ?: 0)
+        result = 31 * result + (relay?.hashCode() ?: 0)
+        result = 31 * result + (signature?.contentHashCode() ?: 0)
+        return result
+    }
+}
 
 data class EncryptedPayload(
     val data: ByteArray,

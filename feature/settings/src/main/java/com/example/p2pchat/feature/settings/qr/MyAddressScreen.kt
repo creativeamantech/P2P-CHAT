@@ -35,6 +35,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.p2pchat.core.crypto.CryptoManager
+import com.example.p2pchat.core.crypto.IdentityManager
 import com.example.p2pchat.feature.peers.ChatAddressHelper
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
@@ -51,7 +52,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class MyAddressViewModel @Inject constructor(
-    private val cryptoManager: CryptoManager
+    private val cryptoManager: CryptoManager,
+    private val identityManager: IdentityManager
 ) : ViewModel() {
 
     private val _qrBitmap = MutableStateFlow<Bitmap?>(null)
@@ -67,7 +69,9 @@ class MyAddressViewModel @Inject constructor(
     private fun generateQr() {
         viewModelScope.launch {
             val identity = cryptoManager.getMyIdentity() ?: return@launch
-            val address = ChatAddressHelper.generateAddress(identity)
+            val address = ChatAddressHelper.generateAddress(identity) { data ->
+                identityManager.sign(data, identity.userId)
+            }
             _addressString.value = address
 
             val bitmap = withContext(Dispatchers.IO) {

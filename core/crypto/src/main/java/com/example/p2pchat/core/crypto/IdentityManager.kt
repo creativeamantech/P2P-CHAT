@@ -16,6 +16,7 @@ import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.params.X25519KeyGenerationParameters
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.X25519PublicKeyParameters
+import org.bouncycastle.crypto.signers.Ed25519Signer
 import java.security.SecureRandom
 import java.util.UUID
 import javax.inject.Inject
@@ -119,6 +120,25 @@ class IdentityManager @Inject constructor(
             x25519PrivateKey = Base64.decode(xPrivStr, Base64.DEFAULT),
             x25519PublicKey = Base64.decode(xPubStr, Base64.DEFAULT)
         )
+    }
+
+    fun sign(data: ByteArray, identityId: String): ByteArray {
+        val keys = getIdentityKeys(identityId) ?: throw IllegalStateException("Identity keys not found")
+        val signer = Ed25519Signer()
+        signer.init(true, Ed25519PrivateKeyParameters(keys.ed25519PrivateKey, 0))
+        signer.update(data, 0, data.size)
+        return signer.generateSignature()
+    }
+
+    fun verify(data: ByteArray, signature: ByteArray, publicKey: ByteArray): Boolean {
+        return try {
+            val verifier = Ed25519Signer()
+            verifier.init(false, Ed25519PublicKeyParameters(publicKey, 0))
+            verifier.update(data, 0, data.size)
+            verifier.verifySignature(signature)
+        } catch (e: Exception) {
+            false
+        }
     }
 
     data class IdentityKeys(

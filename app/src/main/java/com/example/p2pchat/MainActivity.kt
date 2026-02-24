@@ -48,6 +48,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+import androidx.compose.runtime.LaunchedEffect
+
 @Composable
 fun P2PChatAppContent(
     viewModel: MainViewModel = hiltViewModel(),
@@ -61,6 +63,15 @@ fun P2PChatAppContent(
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
     } else {
+        // Handle deep link navigation once graph is ready
+        LaunchedEffect(initialLink) {
+            if (initialLink != null) {
+                // Ensure we don't navigate if already there or if graph issues?
+                // Compose navigation handles repeated navigation safely usually.
+                navController.navigate("peers")
+            }
+        }
+
         NavHost(navController = navController, startDestination = startDestination!!) {
             composable("create_identity") {
                 CreateIdentityRoute(
@@ -89,9 +100,15 @@ fun P2PChatAppContent(
                     onBackClick = { navController.popBackStack() }
                 )
             }
-            composable("peers") {
+            composable("peers") { entry ->
+                // Check for QR scan result
+                val qrResult = entry.savedStateHandle.get<String>("qr_result")
+                if (qrResult != null) {
+                    entry.savedStateHandle.remove<String>("qr_result")
+                }
+
                 PeersRoute(
-                    initialLink = initialLink,
+                    initialLink = qrResult ?: initialLink,
                     onNavigateToScan = {
                         navController.navigate("scan")
                     },
@@ -103,10 +120,9 @@ fun P2PChatAppContent(
             composable("scan") {
                 ScanQrScreen(
                     onQrScanned = { link ->
-                        val intent = Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link))
-                        intent.setPackage(navController.context.packageName)
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        navController.context.startActivity(intent)
+                        navController.previousBackStackEntry
+                            ?.savedStateHandle
+                            ?.set("qr_result", link)
                         navController.popBackStack()
                     }
                 )
