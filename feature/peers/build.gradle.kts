@@ -40,8 +40,10 @@ android {
 dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:storage"))
+    implementation(project(":core:crypto"))
     implementation(project(":core:network"))
     implementation(project(":core:ui"))
+    implementation("org.bouncycastle:bcprov-jdk18on:1.77")
     implementation("com.google.dagger:hilt-android:2.50")
     ksp("com.google.dagger:hilt-android-compiler:2.50")
     val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
