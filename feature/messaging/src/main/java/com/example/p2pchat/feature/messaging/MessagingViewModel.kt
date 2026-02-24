@@ -42,25 +42,8 @@ class MessagingViewModel @Inject constructor(
             val messages = entities.mapNotNull { entity ->
                 try {
                     val clearText = if (entity.senderId == "local_peer") {
-                        // For sent messages, we might have stored plain text in encryptedContent
-                        // if we didn't implement "encrypt for self".
-                        // BUT Ratchet encrypt produces a different ciphertext every time.
-                        // Ideally we store plain text for self, or encrypt with a self-device key.
-                        // For MVP, let's assume we stored plain text bytes for sent messages
-                        // just to show them in UI (insecure for local storage, but functional).
                         String(entity.encryptedContent)
                     } else {
-                        // Received message. It was stored encrypted as received from wire?
-                        // Or decrypted before storage?
-                        // If stored encrypted, we need to decrypt now.
-                        // BUT Ratchet decryption changes state! We cannot decrypt on read (GET).
-                        // We must decrypt on receive (PUT).
-                        // So the entity in DB *should* be decrypted content (encrypted with local DB key ideally).
-
-                        // Let's assume the Repository/DB layer handles "At-Rest" encryption transparently
-                        // (SQLCipher handles this).
-                        // So what we get back from DB in 'encryptedContent' field...
-                        // If we saved the RESULT of ratchet decryption there, it is plaintext!
                         String(entity.encryptedContent)
                     }
 
@@ -72,7 +55,7 @@ class MessagingViewModel @Inject constructor(
                         encryptedContent = entity.encryptedContent,
                         iv = entity.iv,
                         clearTextCache = clearText,
-                        topics = emptySet(),
+                        topics = emptySet(), // TODO: Fetch topics
                         attachments = emptyList(),
                         sentAt = kotlinx.datetime.Instant.fromEpochMilliseconds(entity.sentAt),
                         deliveryState = DeliveryState.Pending, // TODO
@@ -94,18 +77,14 @@ class MessagingViewModel @Inject constructor(
         viewModelScope.launch {
             transport.receive().collect { payload ->
                 try {
-                    // 1. Decrypt using Ratchet
                     val plaintext = ratchetManager.decrypt(peerId, payload.data)
-
-                    // 2. Save Decrypted (Plaintext) to DB
-                    // (SQLCipher protects it at rest)
                     val now = Clock.System.now().toEpochMilliseconds()
                     val messageEntity = MessageEntity(
                         id = UUID.randomUUID().toString(),
                         threadId = threadId,
                         parentMessageId = null,
                         senderId = peerId,
-                        encryptedContent = plaintext, // Storing plaintext (protected by DB enc)
+                        encryptedContent = plaintext,
                         iv = ByteArray(12),
                         sentAt = now,
                         deliveryState = "DELIVERED",
@@ -114,14 +93,13 @@ class MessagingViewModel @Inject constructor(
                     )
                     messageRepository.saveMessage(messageEntity)
                 } catch (e: Exception) {
-                    // Decryption failed or unknown peer
                     e.printStackTrace()
                 }
             }
         }
     }
 
-    fun sendMessage(text: String) {
+    fun sendMessage(text: String, parentId: String? = null) {
         if (text.isBlank()) return
 
         viewModelScope.launch {
@@ -130,20 +108,17 @@ class MessagingViewModel @Inject constructor(
             val senderId = "local_peer"
             val plaintext = text.toByteArray()
 
-            // 1. Encrypt using Ratchet
             try {
                 val ciphertext = ratchetManager.encrypt(peerId, plaintext)
 
-                // 2. Send over Transport
                 transport.send(EncryptedPayload(ciphertext))
                     .onSuccess {
-                        // 3. Save to DB (Plaintext for local viewing)
                         val messageEntity = MessageEntity(
                             id = messageId,
                             threadId = threadId,
-                            parentMessageId = null,
+                            parentMessageId = parentId,
                             senderId = senderId,
-                            encryptedContent = plaintext, // Save plaintext
+                            encryptedContent = plaintext,
                             iv = ByteArray(12),
                             sentAt = now,
                             deliveryState = "SENT",
@@ -152,13 +127,15 @@ class MessagingViewModel @Inject constructor(
                         )
                         messageRepository.saveMessage(messageEntity)
                     }
-                    .onFailure {
-                        // Handle error
-                    }
             } catch (e: Exception) {
-                // Encryption failed (maybe no session established?)
                 e.printStackTrace()
             }
+        }
+    }
+
+    fun tagMessage(messageId: String, topic: String) {
+        viewModelScope.launch {
+            messageRepository.tagMessage(messageId, topic)
         }
     }
 }
