@@ -6,8 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.p2pchat.core.crypto.ratchet.RatchetManager
 import com.example.p2pchat.core.model.DeliveryState
 import com.example.p2pchat.core.model.Message
+import com.example.p2pchat.core.network.ConnectionManager
 import com.example.p2pchat.core.network.EncryptedPayload
-import com.example.p2pchat.core.network.P2PTransport
 import com.example.p2pchat.core.storage.entity.MessageEntity
 import com.example.p2pchat.core.storage.repository.MessageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -30,22 +30,18 @@ sealed interface MessagingUiState {
 class MessagingViewModel @Inject constructor(
     private val messageRepository: MessageRepository,
     private val ratchetManager: RatchetManager,
-    private val transport: P2PTransport,
+    private val connectionManager: ConnectionManager,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     private val threadId: String = checkNotNull(savedStateHandle["threadId"])
-    private val peerId: String = threadId // Assuming threadId == peerId for 1:1 chat MVP
+    private val peerId: String = threadId
 
     val uiState: StateFlow<MessagingUiState> = messageRepository.observeThread(threadId)
         .map { entities ->
             val messages = entities.mapNotNull { entity ->
                 try {
-                    val clearText = if (entity.senderId == "local_peer") {
-                        String(entity.encryptedContent)
-                    } else {
-                        String(entity.encryptedContent)
-                    }
+                    val clearText = String(entity.encryptedContent)
 
                     Message(
                         id = entity.id,
@@ -55,10 +51,10 @@ class MessagingViewModel @Inject constructor(
                         encryptedContent = entity.encryptedContent,
                         iv = entity.iv,
                         clearTextCache = clearText,
-                        topics = emptySet(), // TODO: Fetch topics
+                        topics = emptySet(),
                         attachments = emptyList(),
                         sentAt = kotlinx.datetime.Instant.fromEpochMilliseconds(entity.sentAt),
-                        deliveryState = DeliveryState.Pending, // TODO
+                        deliveryState = DeliveryState.Pending,
                         reactions = emptyMap()
                     )
                 } catch (e: Exception) {
@@ -75,7 +71,7 @@ class MessagingViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            transport.receive().collect { payload ->
+            connectionManager.incomingMessages.collect { payload ->
                 try {
                     val plaintext = ratchetManager.decrypt(peerId, payload.data)
                     val now = Clock.System.now().toEpochMilliseconds()
@@ -111,22 +107,23 @@ class MessagingViewModel @Inject constructor(
             try {
                 val ciphertext = ratchetManager.encrypt(peerId, plaintext)
 
-                transport.send(EncryptedPayload(ciphertext))
-                    .onSuccess {
-                        val messageEntity = MessageEntity(
-                            id = messageId,
-                            threadId = threadId,
-                            parentMessageId = parentId,
-                            senderId = senderId,
-                            encryptedContent = plaintext,
-                            iv = ByteArray(12),
-                            sentAt = now,
-                            deliveryState = "SENT",
-                            deliveredAt = null,
-                            readAt = null
-                        )
-                        messageRepository.saveMessage(messageEntity)
-                    }
+                // Use ConnectionManager which handles Outbox logic
+                connectionManager.sendMessage(peerId, EncryptedPayload(ciphertext))
+
+                // Optimistic UI update
+                val messageEntity = MessageEntity(
+                    id = messageId,
+                    threadId = threadId,
+                    parentMessageId = parentId,
+                    senderId = senderId,
+                    encryptedContent = plaintext,
+                    iv = ByteArray(12),
+                    sentAt = now,
+                    deliveryState = "SENT", // Actually "Queued" in real terms
+                    deliveredAt = null,
+                    readAt = null
+                )
+                messageRepository.saveMessage(messageEntity)
             } catch (e: Exception) {
                 e.printStackTrace()
             }

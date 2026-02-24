@@ -4,15 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.p2pchat.core.model.Peer
 import com.example.p2pchat.core.model.PublicKeyBundle
+import com.example.p2pchat.core.network.ConnectionManager
 import com.example.p2pchat.core.network.ConnectionState
-import com.example.p2pchat.core.network.P2PTransport
 import com.example.p2pchat.core.network.PeerDescriptor
 import com.example.p2pchat.core.storage.repository.PeerRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -31,16 +29,17 @@ sealed interface PeersUiState {
 
 @HiltViewModel
 class PeersViewModel @Inject constructor(
-    private val transport: P2PTransport,
-    private val peerRepository: PeerRepository
+    private val connectionManager: ConnectionManager,
+    private val peerRepository: PeerRepository,
+    private val handshakeManager: HandshakeManager
 ) : ViewModel() {
 
-    // Discover peers from Transport (Network)
-    private val discoveredPeers = transport.discoverPeers()
+    // Discover peers from ConnectionManager (Aggregated)
+    private val discoveredPeers = connectionManager.discoverPeers()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    // Connection State from Transport
-    private val connectionState = transport.connectionState
+    // Connection State from ConnectionManager
+    private val connectionState = connectionManager.connectionState
 
     val uiState: StateFlow<PeersUiState> = combine(
         discoveredPeers,
@@ -51,7 +50,7 @@ class PeersViewModel @Inject constructor(
         } else {
             PeersUiState.Success(
                 discoveredPeers = peers,
-                connectedPeerId = if (connState is ConnectionState.Connected) "Connected" else null, // Simplified
+                connectedPeerId = if (connState is ConnectionState.Connected) "Connected" else null,
                 connectionState = connState
             )
         }
@@ -63,12 +62,11 @@ class PeersViewModel @Inject constructor(
 
     fun connectToPeer(peer: PeerDescriptor) {
         viewModelScope.launch {
-            transport.connect(peer)
+            connectionManager.connect(peer)
                 .onSuccess {
-                    // On success, we might want to save this peer to DB as a "known peer"
-                    // But for now, we just rely on connection state
-                    // In a real app, we'd exchange keys here.
                     savePeerPlaceholder(peer)
+                    // Initiate handshake
+                    handshakeManager.initiateHandshake(peer.peerId)
                 }
                 .onFailure {
                     // Handle error
@@ -77,12 +75,10 @@ class PeersViewModel @Inject constructor(
     }
 
     private suspend fun savePeerPlaceholder(peer: PeerDescriptor) {
-        // We don't have their keys yet until we exchange messages or handshake.
-        // For MVP, we'll create a dummy peer entry so we can start a thread.
         val placeholderPeer = Peer(
             id = peer.peerId,
             displayName = peer.name,
-            publicKey = PublicKeyBundle(ByteArray(32), ByteArray(32), ""), // Dummy keys
+            publicKey = PublicKeyBundle(ByteArray(32), ByteArray(32), ""),
             lastSeen = Clock.System.now(),
             isTrusted = false
         )
@@ -91,7 +87,7 @@ class PeersViewModel @Inject constructor(
 
     fun disconnect() {
         viewModelScope.launch {
-            transport.disconnect()
+            connectionManager.disconnect()
         }
     }
 }

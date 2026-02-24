@@ -33,6 +33,7 @@ android {
 
 dependencies {
     implementation(project(":core:model"))
+    implementation(project(":core:storage"))
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("javax.inject:javax.inject:1")

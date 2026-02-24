@@ -17,9 +17,10 @@ import net.sqlcipher.database.SupportFactory
         PeerEntity::class,
         RatchetStateEntity::class,
         ThreadParticipantEntity::class,
-        MessageFtsEntity::class
+        MessageFtsEntity::class,
+        OutboxEntity::class
     ],
-    version = 2, // Bump version
+    version = 3, // Bump version
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -28,13 +29,14 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun topicDao(): TopicDao
     abstract fun peerDao(): PeerDao
     abstract fun ratchetStateDao(): RatchetStateDao
+    abstract fun outboxDao(): OutboxDao
 
     companion object {
         fun create(context: Context, passphrase: ByteArray): AppDatabase {
             val factory = SupportFactory(passphrase)
             return Room.databaseBuilder(context, AppDatabase::class.java, "p2pchat.db")
                 .openHelperFactory(factory)
-                .fallbackToDestructiveMigration() // For MVP simplicity
+                .fallbackToDestructiveMigration()
                 .build()
         }
     }
