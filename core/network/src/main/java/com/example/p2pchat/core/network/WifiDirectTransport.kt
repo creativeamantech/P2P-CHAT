@@ -8,18 +8,31 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.wifi.p2p.WifiP2pConfig
-import android.net.wifi.p2p.WifiP2pDevice
+import android.net.wifi.p2p.WifiP2pInfo
 import android.net.wifi.p2p.WifiP2pManager
 import android.os.Build
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.consumeAsFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.Socket
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -27,6 +40,8 @@ import javax.inject.Singleton
 class WifiDirectTransport @Inject constructor(
     @ApplicationContext private val context: Context
 ) : P2PTransport {
+
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val manager: WifiP2pManager? by lazy {
         context.getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
@@ -39,7 +54,13 @@ class WifiDirectTransport @Inject constructor(
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    override val peerId: String = "local_peer" // Should be injected or managed
+    override val peerId: String = "local_peer" // TODO: Inject Identity
+
+    private var socket: Socket? = null
+    private var inputStream: DataInputStream? = null
+    private var outputStream: DataOutputStream? = null
+
+    private val incomingMessages = Channel<EncryptedPayload>(Channel.BUFFERED)
 
     @SuppressLint("MissingPermission")
     override fun discoverPeers(): Flow<List<PeerDescriptor>> = callbackFlow {
@@ -55,12 +76,23 @@ class WifiDirectTransport @Inject constructor(
                         manager?.requestPeers(wifiP2pChannel) { peers ->
                             val descriptors = peers.deviceList.map { device ->
                                 PeerDescriptor(
-                                    peerId = device.deviceAddress, // MAC as ID for now
+                                    peerId = device.deviceAddress,
                                     name = device.deviceName,
                                     address = device.deviceAddress
                                 )
                             }
                             trySend(descriptors)
+                        }
+                    }
+                    WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> {
+                        val networkInfo = intent.getParcelableExtra<android.net.NetworkInfo>(WifiP2pManager.EXTRA_NETWORK_INFO)
+                        if (networkInfo?.isConnected == true) {
+                            manager?.requestConnectionInfo(wifiP2pChannel) { info ->
+                                handleConnectionInfo(info)
+                            }
+                        } else {
+                            _connectionState.value = ConnectionState.Disconnected
+                            closeSocket()
                         }
                     }
                 }
@@ -69,6 +101,7 @@ class WifiDirectTransport @Inject constructor(
 
         val intentFilter = IntentFilter().apply {
             addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
+            addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
         }
         context.registerReceiver(receiver, intentFilter)
 
@@ -83,6 +116,68 @@ class WifiDirectTransport @Inject constructor(
         }
     }
 
+    private fun handleConnectionInfo(info: WifiP2pInfo) {
+        if (_connectionState.value is ConnectionState.Connected) return // Already connected logic
+
+        scope.launch {
+            try {
+                if (info.groupFormed && info.isGroupOwner) {
+                    _connectionState.value = ConnectionState.Connecting
+                    // Start Server
+                    val serverSocket = ServerSocket(47890)
+                    socket = serverSocket.accept() // Block until client connects
+                    _connectionState.value = ConnectionState.Connected
+                    setupStreams()
+                } else if (info.groupFormed) {
+                    _connectionState.value = ConnectionState.Connecting
+                    // Client: Connect to Group Owner
+                    val host = info.groupOwnerAddress.hostAddress
+                    socket = Socket()
+                    socket?.connect(InetSocketAddress(host, 47890), 5000)
+                    _connectionState.value = ConnectionState.Connected
+                    setupStreams()
+                }
+            } catch (e: Exception) {
+                Log.e("P2P", "Connection error", e)
+                _connectionState.value = ConnectionState.Error(e)
+                closeSocket()
+            }
+        }
+    }
+
+    private fun setupStreams() {
+        val s = socket ?: return
+        inputStream = DataInputStream(s.getInputStream())
+        outputStream = DataOutputStream(s.getOutputStream())
+
+        // Start listening loop
+        scope.launch {
+            try {
+                while (true) {
+                    val length = inputStream?.readInt() ?: break
+                    val bytes = ByteArray(length)
+                    inputStream?.readFully(bytes)
+                    incomingMessages.send(EncryptedPayload(bytes))
+                }
+            } catch (e: IOException) {
+                Log.e("P2P", "Receive error", e)
+                _connectionState.value = ConnectionState.Disconnected
+                closeSocket()
+            }
+        }
+    }
+
+    private fun closeSocket() {
+        try {
+            socket?.close()
+            socket = null
+            inputStream = null
+            outputStream = null
+        } catch (e: Exception) {
+            // Ignore
+        }
+    }
+
     @SuppressLint("MissingPermission")
     override suspend fun connect(peerDescriptor: PeerDescriptor): Result<Unit> {
         if (!hasPermissions()) return Result.failure(SecurityException("Missing permissions"))
@@ -93,33 +188,45 @@ class WifiDirectTransport @Inject constructor(
             deviceAddress = peerDescriptor.address
         }
 
-        manager?.connect(wifiP2pChannel, config, object : WifiP2pManager.ActionListener {
-            override fun onSuccess() {
-                // Connection initiated
-                // Actual connection state changes via broadcast
-                // For MVP, assume connected
-                _connectionState.value = ConnectionState.Connected
-            }
+        return withContext(Dispatchers.Main) { // connect needs main thread or looper usually
+             try {
+                 manager?.connect(wifiP2pChannel, config, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        // Wait for CONNECTION_CHANGED_ACTION
+                    }
 
-            override fun onFailure(reason: Int) {
-                _connectionState.value = ConnectionState.Error(Exception("Connection failed: $reason"))
-            }
-        })
-
-        return Result.success(Unit) // Async result handled by state flow
+                    override fun onFailure(reason: Int) {
+                        _connectionState.value = ConnectionState.Error(Exception("Connection initiation failed: "))
+                    }
+                })
+                Result.success(Unit)
+             } catch (e: Exception) {
+                 Result.failure(e)
+             }
+        }
     }
 
     override suspend fun send(payload: EncryptedPayload): Result<Unit> {
-        // Socket send logic
-        return Result.success(Unit)
+        return withContext(Dispatchers.IO) {
+            try {
+                val out = outputStream ?: return@withContext Result.failure(Exception("Not connected"))
+                synchronized(out) {
+                    out.writeInt(payload.data.size)
+                    out.write(payload.data)
+                    out.flush()
+                }
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
     }
 
-    override fun receive(): Flow<EncryptedPayload> = flow {
-        // Socket receive logic
-    }
+    override fun receive(): Flow<EncryptedPayload> = incomingMessages.consumeAsFlow()
 
     override suspend fun disconnect() {
         manager?.removeGroup(wifiP2pChannel, null)
+        closeSocket()
         _connectionState.value = ConnectionState.Disconnected
     }
 
