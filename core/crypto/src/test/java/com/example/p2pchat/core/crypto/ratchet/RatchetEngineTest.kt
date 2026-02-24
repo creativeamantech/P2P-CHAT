@@ -54,7 +54,12 @@ class RatchetEngineTest {
             bobKeyPair.private as X25519PrivateKeyParameters,
             bobKeyPair.public as X25519PublicKeyParameters
         )
-        var bobState = engine.initializeBob(sharedSecret, bobPub, bobKeyPairWrapper)
+        // Correctly pass the arguments required by the updated RatchetEngine
+        // initializeBob(sharedSecret, alicePublicKey, myKeyPair)
+        // Alice's key is not strictly needed for this test's logic as it's extracted from header,
+        // but we must pass something to satisfy signature.
+        val aliceDummyPub = bobPub // Just to satisfy signature
+        var bobState = engine.initializeBob(sharedSecret, aliceDummyPub, bobKeyPairWrapper)
 
         // Bob Decrypts M1
         val (newBobState1, decrypted1) = engine.decrypt(bobState, payload1)

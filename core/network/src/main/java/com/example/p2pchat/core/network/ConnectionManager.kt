@@ -7,6 +7,9 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.example.p2pchat.core.network.config.PrivacyLevel
+import com.example.p2pchat.core.network.privacy.CoverTrafficManager
+import com.example.p2pchat.core.network.privacy.MixNetworkLayer
 import com.example.p2pchat.core.storage.repository.PersistentMessageQueue
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -26,9 +29,12 @@ class ConnectionManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val wifiDirectTransport: WifiDirectTransport,
     private val bluetoothTransport: BluetoothTransport,
-    private val messageQueue: PersistentMessageQueue
+    private val messageQueue: PersistentMessageQueue,
+    private val mixNetworkLayer: MixNetworkLayer,
+    private val coverTrafficManager: CoverTrafficManager
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var privacyLevel = PrivacyLevel.STANDARD // Default
 
     // Aggregated Connection State
     private val activeTransports = ConcurrentHashMap<String, P2PTransport>()
@@ -115,6 +121,19 @@ class ConnectionManager @Inject constructor(
         activeTransports.clear()
     }
 
+    fun setPrivacyLevel(level: PrivacyLevel) {
+        this.privacyLevel = level
+        if (level == PrivacyLevel.MAXIMUM) {
+            // Start cover traffic for all active peers?
+            // For MVP, we start when connected.
+        } else {
+            // Stop cover traffic
+            // We need peerId to stop specific ones.
+            // Ideally iterate activeTransports.
+            activeTransports.keys.forEach { coverTrafficManager.stopCoverTraffic(it) }
+        }
+    }
+
     suspend fun sendMessage(peerId: String, payload: EncryptedPayload) {
         // 1. Enqueue
         messageQueue.enqueue(peerId, payload.data)
@@ -126,15 +145,27 @@ class ConnectionManager @Inject constructor(
     suspend fun flushQueue(peerId: String) {
         val transport = getActiveTransport(peerId) ?: return // Not connected
 
+        // Ensure privacy features are active if needed
+        if (privacyLevel == PrivacyLevel.MAXIMUM) {
+             coverTrafficManager.startCoverTraffic(peerId, transport)
+        }
+
         val pending = messageQueue.getPendingForPeer(peerId)
         for (msg in pending) {
-            // Re-wrap in EncryptedPayload
-            val payload = EncryptedPayload(msg.payload, senderId = null) // SenderId filled on receive
-            val result = transport.send(payload)
-            if (result.isSuccess) {
+            val payload = EncryptedPayload(msg.payload, senderId = null)
+
+            if (privacyLevel >= PrivacyLevel.HIGH) {
+                // Use Mix Network
+                mixNetworkLayer.sendViaMix(payload, peerId, transport)
                 messageQueue.remove(msg.id)
             } else {
-                break // Stop on error, retry later
+                // Direct Send
+                val result = transport.send(payload)
+                if (result.isSuccess) {
+                    messageQueue.remove(msg.id)
+                } else {
+                    break // Stop on error, retry later
+                }
             }
         }
     }

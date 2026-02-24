@@ -2,6 +2,7 @@ package com.example.p2pchat.core.crypto.ratchet
 
 import org.bouncycastle.crypto.generators.X25519KeyPairGenerator
 import org.bouncycastle.crypto.params.X25519KeyGenerationParameters
+import com.example.p2pchat.core.crypto.privacy.MessagePadding
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.X25519PublicKeyParameters
 import java.security.SecureRandom
@@ -12,6 +13,7 @@ import javax.crypto.spec.SecretKeySpec
 class RatchetEngine {
 
     private val secureRandom = SecureRandom()
+    private val padding = MessagePadding()
 
     fun initializeAlice(
         sharedSecret: ByteArray,
@@ -90,9 +92,12 @@ class RatchetEngine {
         // For MVP, we'll use random IV and append it (overhead, but safe).
         secureRandom.nextBytes(iv)
 
+        // Pad plaintext before encryption
+        val paddedPlaintext = padding.pad(plaintext)
+
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(messageKey, "AES"), GCMParameterSpec(128, iv))
         cipher.updateAAD(ad)
-        val ciphertext = cipher.doFinal(plaintext)
+        val ciphertext = cipher.doFinal(paddedPlaintext)
 
         // Payload = Header + IV + Ciphertext
         val payload = ad + iv + ciphertext
@@ -164,7 +169,10 @@ class RatchetEngine {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(messageKey, "AES"), GCMParameterSpec(128, iv))
         cipher.updateAAD(headerBytes)
-        val plaintext = cipher.doFinal(ciphertext)
+        val paddedPlaintext = cipher.doFinal(ciphertext)
+
+        // Unpad
+        val plaintext = padding.unpad(paddedPlaintext)
 
         // 5. Update State
         val newState = currentState.copy(
