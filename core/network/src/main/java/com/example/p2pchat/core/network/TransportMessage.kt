@@ -70,10 +70,26 @@ sealed class TransportMessage {
         }
     }
 
+    data class Signaling(
+        val type: String, // "OFFER", "ANSWER", "ICE"
+        val payload: String // SDP or ICE candidate JSON
+    ) : TransportMessage() {
+        override fun toBytes(): ByteArray {
+            val bos = ByteArrayOutputStream()
+            val dos = DataOutputStream(bos)
+            dos.writeByte(TYPE_SIGNALING)
+            dos.writeUTF(type)
+            dos.writeUTF(payload)
+            dos.flush()
+            return bos.toByteArray()
+        }
+    }
+
     companion object {
         private const val TYPE_HANDSHAKE = 1
         private const val TYPE_CHAT = 2
         const val TYPE_ATTACHMENT = 3
+        private const val TYPE_SIGNALING = 4
 
         fun fromBytes(bytes: ByteArray): TransportMessage {
             val bis = ByteArrayInputStream(bytes)
@@ -110,6 +126,11 @@ sealed class TransportMessage {
                     val data = ByteArray(len)
                     dis.readFully(data)
                     AttachmentChunk(transferId, index, total, data)
+                }
+                TYPE_SIGNALING -> {
+                    val sigType = dis.readUTF()
+                    val payload = dis.readUTF()
+                    Signaling(sigType, payload)
                 }
                 else -> throw IllegalArgumentException("Unknown message type: $type")
             }

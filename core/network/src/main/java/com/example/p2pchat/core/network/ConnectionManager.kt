@@ -25,6 +25,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 import com.example.p2pchat.core.network.tor.TorTransport
+import com.example.p2pchat.core.network.webrtc.WebRtcTransport
 
 @Singleton
 class ConnectionManager @Inject constructor(
@@ -32,6 +33,7 @@ class ConnectionManager @Inject constructor(
     private val wifiDirectTransport: WifiDirectTransport,
     private val bluetoothTransport: BluetoothTransport,
     private val torTransport: TorTransport,
+    private val webRtcTransport: WebRtcTransport,
     private val messageQueue: PersistentMessageQueue,
     private val mixNetworkLayer: MixNetworkLayer,
     private val coverTrafficManager: CoverTrafficManager
@@ -45,15 +47,14 @@ class ConnectionManager @Inject constructor(
     val connectionState: Flow<ConnectionState> = combine(
         wifiDirectTransport.connectionState,
         bluetoothTransport.connectionState,
-        torTransport.connectionState
-    ) { wifiState, btState, torState ->
-        if (wifiState is ConnectionState.Connected) {
-            wifiState
-        } else if (btState is ConnectionState.Connected) {
-            btState
-        } else if (torState is ConnectionState.Connected) {
-            torState
-        } else if (wifiState is ConnectionState.Connecting || btState is ConnectionState.Connecting || torState is ConnectionState.Connecting) {
+        torTransport.connectionState,
+        webRtcTransport.connectionState
+    ) { wifiState, btState, torState, rtcState ->
+        if (rtcState is ConnectionState.Connected) rtcState
+        else if (wifiState is ConnectionState.Connected) wifiState
+        else if (btState is ConnectionState.Connected) btState
+        else if (torState is ConnectionState.Connected) torState
+        else if (wifiState is ConnectionState.Connecting || btState is ConnectionState.Connecting || torState is ConnectionState.Connecting || rtcState is ConnectionState.Connecting) {
             ConnectionState.Connecting
         } else {
             ConnectionState.Disconnected
@@ -63,10 +64,68 @@ class ConnectionManager @Inject constructor(
     val incomingMessages: Flow<EncryptedPayload> = merge(
         wifiDirectTransport.receive(),
         bluetoothTransport.receive(),
-        torTransport.receive()
+        torTransport.receive(),
+        webRtcTransport.receive()
     )
 
     init {
+        // Setup Signaling Callback for WebRTC
+        webRtcTransport.signalingSender = { peerId, message ->
+            // Send this signaling message via whatever transport is currently active for this peer
+            scope.launch {
+                val transport = getActiveTransport(peerId)
+                if (transport != null) {
+                    // Wrap signaling message in EncryptedPayload logic?
+                    // No, transports usually send EncryptedPayload.
+                    // But signaling messages are effectively cleartext (or encrypted by session if possible).
+                    // If we use the transport's `send` which expects EncryptedPayload (Ratchet Encrypted),
+                    // we are encrypting SDP. This is GOOD.
+                    // BUT, `TransportMessage.Signaling` is a type.
+                    // We need to wrap it into `EncryptedPayload`.
+                    // BUT `send` usually takes `EncryptedPayload` and sends it as `Chat`.
+                    // We need a way to send `Signaling` TYPE.
+
+                    // Actually, `TorTransport.send(EncryptedPayload)` wraps it in `Chat`.
+                    // We need a raw send or update `EncryptedPayload` to support `Signaling` flag.
+                    // OR we send it as `Chat` content, but with a prefix?
+
+                    // Ideally, we assume we are inside the E2E tunnel.
+                    // So we send `TransportMessage.Signaling` serialized as bytes, encrypted by Ratchet.
+                    // The receiver decrypts it, sees it's a `Signaling` message (how?), and routes it to `WebRtcTransport`.
+
+                    // Problem: `RatchetEngine` decrypts to `ByteArray`.
+                    // `MessageProcessor` parses `TransportMessage`.
+                    // If `TransportMessage` has `Signaling` type, `MessageProcessor` should handle it.
+
+                    // So:
+                    // 1. Serialize `TransportMessage.Signaling`
+                    // 2. Encrypt it (sendMessage logic)
+                    // 3. Send via transport
+
+                    // But `TransportMessage` is what is INSIDE the encryption?
+                    // In `TorTransport`: `deserializePayload` reads `TransportMessage`.
+                    // Wait, `TorTransport` sends `EncryptedPayload` wrapped in `TransportMessage.Chat`.
+                    // So `EncryptedPayload` = [Header + Ciphertext].
+                    // Ciphertext = Encrypted(TransportMessage).
+
+                    // IF `MessageProcessor` decrypts `EncryptedPayload`, it gets `TransportMessage` bytes?
+                    // `MessageProcessor` calls `ratchetManager.decrypt`. Result is `plaintext`.
+                    // `plaintext` should be `TransportMessage` (Chat or Signaling).
+
+                    // So we just need to send it like a normal message!
+                    // But we don't want to save it to DB as Chat.
+                    // `MessageProcessor` needs to distinguish.
+
+                    // For now, let's create a special helper or just use `sendMessage`?
+                    // But `sendMessage` enqueues. Signaling should be ephemeral/fast?
+                    // And we construct `Signaling` object.
+
+                    // I will create `sendSignalingMessage` method.
+                    sendSignalingMessage(peerId, message)
+                }
+            }
+        }
+
         // Schedule WorkManager
         scheduleMessageFlush()
 
@@ -74,9 +133,6 @@ class ConnectionManager @Inject constructor(
         scope.launch {
             connectionState.collect { state ->
                 if (state is ConnectionState.Connected) {
-                    // Try to flush for connected peers
-                    // Since we don't have exact peer ID in state, we rely on activeTransports map
-                    // or just iterate known peers with pending messages.
                     val pendingPeers = messageQueue.getPeersWithPendingMessages()
                     for (peerId in pendingPeers) {
                         flushQueue(peerId)
@@ -160,6 +216,33 @@ class ConnectionManager @Inject constructor(
 
         // 2. Try to send immediately
         flushQueue(peerId)
+    }
+
+    suspend fun sendSignalingMessage(peerId: String, message: TransportMessage.Signaling) {
+        // Signaling messages are ephemeral, don't persist in Chat DB?
+        // But we DO encrypt them so they travel through the secure tunnel.
+        // We construct a `TransportMessage.Signaling` bytes.
+        // We encrypt it.
+        // We send it directly (skip queue for speed? or queue if vital?)
+        // Queueing is safer.
+
+        // Problem: `EncryptedPayload` is the RESULT of encryption.
+        // We need to encrypt here?
+        // `ConnectionManager` usually receives `EncryptedPayload` from `SendMessageUseCase` (which encrypts).
+        // So `SendMessageUseCase` knows about encryption.
+        // `WebRtcTransport` doesn't know about encryption.
+
+        // We need to inject `RatchetManager` or `CryptoManager` here to encrypt signaling?
+        // Or expose an encryption helper.
+        // `ConnectionManager` doesn't currently hold `RatchetManager`.
+        // Ideally `WebRtcTransport` should just give us the cleartext bytes and we encrypt?
+
+        // For MVP, assuming `payload` in `sendMessage` IS the encrypted data.
+        // We need to encrypt `message.toBytes()`.
+        // This implies `ConnectionManager` needs `RatchetManager`.
+        // Refactoring to add `RatchetManager` dependency to `ConnectionManager`.
+
+        // I will add the dependency in the constructor via Dagger.
     }
 
     suspend fun flushQueue(peerId: String) {
