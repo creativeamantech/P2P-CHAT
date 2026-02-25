@@ -2,30 +2,28 @@ package com.example.p2pchat.feature.conversations.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.p2pchat.core.model.Message
-import com.example.p2pchat.core.storage.repository.MessageRepository
+import com.example.p2pchat.feature.conversations.domain.SearchResults
+import com.example.p2pchat.feature.conversations.domain.SearchUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 sealed interface SearchUiState {
     object Idle : SearchUiState
     object Loading : SearchUiState
-    data class Success(val results: List<Message>) : SearchUiState
+    data class Success(val results: SearchResults) : SearchUiState
     object Empty : SearchUiState
 }
 
 @HiltViewModel
 class SearchViewModel @Inject constructor(
-    private val messageRepository: MessageRepository
+    private val searchUseCase: SearchUseCase
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -41,28 +39,10 @@ class SearchViewModel @Inject constructor(
                 .filter { it.isNotBlank() }
                 .collectLatest { query ->
                     _uiState.value = SearchUiState.Loading
-                    messageRepository.searchMessages(query)
-                        .map { entities ->
-                            entities.map { entity ->
-                                // Simplified mapping - assuming encryptedContent holds display text for MVP FTS
-                                Message(
-                                    id = entity.id,
-                                    threadId = entity.threadId,
-                                    parentMessageId = entity.parentMessageId,
-                                    senderId = entity.senderId,
-                                    encryptedContent = entity.encryptedContent,
-                                    iv = entity.iv,
-                                    clearTextCache = String(entity.encryptedContent),
-                                    topics = emptySet(),
-                                    attachments = emptyList(),
-                                    sentAt = kotlinx.datetime.Instant.fromEpochMilliseconds(entity.sentAt),
-                                    deliveryState = com.example.p2pchat.core.model.DeliveryState.Pending,
-                                    reactions = emptyMap()
-                                )
-                            }
-                        }
-                        .collect { messages ->
-                            _uiState.value = if (messages.isEmpty()) SearchUiState.Empty else SearchUiState.Success(messages)
+                    searchUseCase(query)
+                        .collect { results ->
+                            val isEmpty = results.messages.isEmpty() && results.topics.isEmpty() && results.peers.isEmpty()
+                            _uiState.value = if (isEmpty) SearchUiState.Empty else SearchUiState.Success(results)
                         }
                 }
         }

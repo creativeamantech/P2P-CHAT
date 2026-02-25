@@ -27,13 +27,13 @@ interface MessageDao {
     @Transaction
     suspend fun insertMessageWithFts(message: MessageEntity, content: String) {
         insertMessage(message)
-        insertMessageFts(MessageFtsEntity(messageId = message.id, content = content, threadId = message.threadId))
+        insertMessageFts(MessageFtsEntity(messageId = message.id, decryptedContent = content, threadId = message.threadId))
     }
 
     @Query("""
         SELECT m.* FROM messages m
         JOIN messages_fts fts ON m.id = fts.message_id
-        WHERE fts.content MATCH :query
+        WHERE fts.decrypted_content MATCH :query
     """)
-    fun searchMessages(query: String): Flow<List<MessageEntity>>
+    fun searchMessagesFts(query: String): Flow<List<MessageEntity>>
 }
