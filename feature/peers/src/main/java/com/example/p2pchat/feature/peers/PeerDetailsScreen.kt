@@ -74,7 +74,7 @@ fun PeerDetailsScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = uiState.safetyNumber ?: "N/A",
+                        text = formatSafetyNumber(uiState.safetyNumber),
                         style = MaterialTheme.typography.bodyLarge,
                         fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                     )
