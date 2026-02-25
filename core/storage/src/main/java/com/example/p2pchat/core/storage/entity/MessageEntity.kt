@@ -33,7 +33,8 @@ data class MessageEntity(
     @ColumnInfo(name = "delivery_state") val deliveryState: String, // Serialize state
     @ColumnInfo(name = "delivered_at") val deliveredAt: Long?,
     @ColumnInfo(name = "read_at") val readAt: Long?,
-    @ColumnInfo(name = "is_deleted") val isDeleted: Boolean = false
+    @ColumnInfo(name = "is_deleted") val isDeleted: Boolean = false,
+    @ColumnInfo(name = "expires_at") val expiresAt: Long? = null
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -52,6 +53,7 @@ data class MessageEntity(
         if (deliveredAt != other.deliveredAt) return false
         if (readAt != other.readAt) return false
         if (isDeleted != other.isDeleted) return false
+        if (expiresAt != other.expiresAt) return false
 
         return true
     }
@@ -68,6 +70,7 @@ data class MessageEntity(
         result = 31 * result + (deliveredAt?.hashCode() ?: 0)
         result = 31 * result + (readAt?.hashCode() ?: 0)
         result = 31 * result + isDeleted.hashCode()
+        result = 31 * result + (expiresAt?.hashCode() ?: 0)
         return result
     }
 }

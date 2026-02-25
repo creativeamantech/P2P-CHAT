@@ -35,6 +35,23 @@ class MessageProcessor @Inject constructor(
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    init {
+        startExpirationCleaner()
+    }
+
+    private fun startExpirationCleaner() {
+        scope.launch {
+             while(isActive) {
+                 kotlinx.coroutines.delay(30_000) // 30 seconds check
+                 try {
+                     messageRepository.deleteExpiredMessages(System.currentTimeMillis())
+                 } catch (e: Exception) {
+                     Log.e("MessageProcessor", "Expiration cleanup failed", e)
+                 }
+             }
+        }
+    }
+
     private data class PendingAttachmentInfo(
         val key: ByteArray,
         val iv: ByteArray,
@@ -119,6 +136,8 @@ class MessageProcessor @Inject constructor(
                                     val content = String(msg.payload)
                                     val messageId = UUID.randomUUID().toString()
                                     var displayContent = msg.payload
+                                    val now = System.currentTimeMillis()
+                                    val expiresAt = if (msg.expiresInSeconds > 0) now + (msg.expiresInSeconds * 1000L) else null
 
                                     // Check for Attachment Pointer
                                     if (content.startsWith("ATTACHMENT_POINTER:")) {
@@ -173,10 +192,11 @@ class MessageProcessor @Inject constructor(
                                             senderId = peerId,
                                             encryptedContent = displayContent,
                                             iv = ByteArray(0),
-                                            sentAt = System.currentTimeMillis(),
+                                            sentAt = now,
                                             deliveryState = "READ",
-                                            deliveredAt = System.currentTimeMillis(),
-                                            readAt = System.currentTimeMillis()
+                                            deliveredAt = now,
+                                            readAt = now,
+                                            expiresAt = expiresAt
                                         )
                                     )
                                 }

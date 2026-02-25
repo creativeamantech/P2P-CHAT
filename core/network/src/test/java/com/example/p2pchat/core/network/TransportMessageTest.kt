@@ -20,4 +20,19 @@ class TransportMessageTest {
         assertEquals(msg.type, sig.type)
         assertEquals(msg.payload, sig.payload)
     }
+
+    @Test
+    fun testChatMessageSerialization() {
+        val payload = "Hello World".toByteArray()
+        val expiresIn = 30
+        val msg = TransportMessage.Chat(payload, expiresIn)
+
+        val bytes = msg.toBytes()
+        val parsed = TransportMessage.fromBytes(bytes)
+
+        assert(parsed is TransportMessage.Chat)
+        val chat = parsed as TransportMessage.Chat
+        org.junit.Assert.assertArrayEquals(msg.payload, chat.payload)
+        assertEquals(msg.expiresInSeconds, chat.expiresInSeconds)
+    }
 }

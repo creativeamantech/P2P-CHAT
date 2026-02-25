@@ -57,4 +57,8 @@ class MessageRepository @Inject constructor(
     fun searchMessages(query: String): Flow<List<MessageEntity>> {
         return messageDao.searchMessages("**")
     }
+
+    suspend fun deleteExpiredMessages(now: Long) {
+        messageDao.deleteExpiredMessages(now)
+    }
 }

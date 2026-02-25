@@ -14,4 +14,13 @@ interface ThreadDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertThread(thread: ThreadEntity)
+
+    @Query("SELECT * FROM threads WHERE id = :threadId")
+    suspend fun getThreadById(threadId: String): ThreadEntity?
+
+    @Query("SELECT * FROM threads WHERE id = :threadId")
+    fun observeThreadById(threadId: String): Flow<ThreadEntity?>
+
+    @Query("UPDATE threads SET default_expiration = :seconds WHERE id = :threadId")
+    suspend fun updateThreadExpiration(threadId: String, seconds: Int?)
 }

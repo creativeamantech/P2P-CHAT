@@ -36,4 +36,16 @@ class ThreadRepository @Inject constructor(
             )
         )
     }
+
+    suspend fun getThreadEntity(threadId: String): ThreadEntity? {
+        return threadDao.getThreadById(threadId)
+    }
+
+    fun observeThreadEntity(threadId: String): Flow<ThreadEntity?> {
+        return threadDao.observeThreadById(threadId)
+    }
+
+    suspend fun updateThreadExpiration(threadId: String, seconds: Int?) {
+        threadDao.updateThreadExpiration(threadId, seconds)
+    }
 }

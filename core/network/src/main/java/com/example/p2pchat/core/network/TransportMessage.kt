@@ -33,7 +33,8 @@ sealed class TransportMessage {
     }
 
     data class Chat(
-        val payload: ByteArray // Encrypted Ratchet Message
+        val payload: ByteArray, // Encrypted Ratchet Message
+        val expiresInSeconds: Int = 0 // 0 means no expiration
     ) : TransportMessage() {
         override fun toBytes(): ByteArray {
             val bos = ByteArrayOutputStream()
@@ -42,6 +43,7 @@ sealed class TransportMessage {
 
             dos.writeInt(payload.size)
             dos.write(payload)
+            dos.writeInt(expiresInSeconds) // Added field
 
             dos.flush()
             return bos.toByteArray()
@@ -116,7 +118,12 @@ sealed class TransportMessage {
                     val len = dis.readInt()
                     val payload = ByteArray(len)
                     dis.readFully(payload)
-                    Chat(payload)
+
+                    val expiresIn = try {
+                        if (dis.available() > 0) dis.readInt() else 0
+                    } catch (e: Exception) { 0 }
+
+                    Chat(payload, expiresIn)
                 }
                 TYPE_ATTACHMENT -> {
                     val transferId = dis.readUTF()

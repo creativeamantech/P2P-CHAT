@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -32,6 +33,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,6 +57,8 @@ fun ChatScreen(
     onBackClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val threadInfo by viewModel.threadInfo.collectAsState()
+    var showTimerDialog by remember { mutableStateOf(false) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -63,13 +68,43 @@ fun ChatScreen(
         }
     }
 
+    if (showTimerDialog) {
+        TimerDialog(
+            currentTimer = threadInfo?.defaultExpiration ?: 0,
+            onDismiss = { showTimerDialog = false },
+            onSetTimer = { seconds ->
+                viewModel.setDisappearingTimer(seconds)
+                showTimerDialog = false
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Chat") },
+                title = {
+                    Column {
+                        Text("Chat")
+                        if ((threadInfo?.defaultExpiration ?: 0) > 0) {
+                            Text(
+                                "Disappearing: ${formatTimer(threadInfo?.defaultExpiration ?: 0)}",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showTimerDialog = true }) {
+                        Icon(
+                            Icons.Default.Timer,
+                            contentDescription = "Set Timer",
+                            tint = if ((threadInfo?.defaultExpiration ?: 0) > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             )
@@ -265,4 +300,58 @@ fun TagDialog(
             }
         }
     )
+}
+
+@Composable
+fun TimerDialog(
+    currentTimer: Int,
+    onDismiss: () -> Unit,
+    onSetTimer: (Int) -> Unit
+) {
+    val options = listOf(
+        0 to "Off",
+        30 to "30 Seconds",
+        300 to "5 Minutes",
+        3600 to "1 Hour",
+        86400 to "1 Day"
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Disappearing Messages") },
+        text = {
+            Column {
+                options.forEach { (seconds, label) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSetTimer(seconds) }
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (currentTimer == seconds) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            Button(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+fun formatTimer(seconds: Int): String {
+    return when {
+        seconds < 60 -> "$seconds s"
+        seconds < 3600 -> "${seconds / 60} m"
+        seconds < 86400 -> "${seconds / 3600} h"
+        else -> "${seconds / 86400} d"
+    }
 }

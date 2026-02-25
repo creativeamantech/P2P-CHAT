@@ -21,6 +21,7 @@ import com.example.p2pchat.core.storage.entity.AttachmentEntity
 import com.example.p2pchat.core.storage.entity.MessageEntity
 import com.example.p2pchat.core.storage.repository.AttachmentRepository
 import com.example.p2pchat.core.storage.repository.MessageRepository
+import com.example.p2pchat.core.storage.repository.ThreadRepository
 import com.example.p2pchat.core.storage.relation.MessageWithAttachments
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
@@ -42,6 +43,7 @@ sealed interface MessagingUiState {
 @HiltViewModel
 class MessagingViewModel @Inject constructor(
     private val messageRepository: MessageRepository,
+    private val threadRepository: ThreadRepository,
     private val attachmentRepository: AttachmentRepository,
     private val ratchetManager: RatchetManager,
     private val connectionManager: ConnectionManager,
@@ -52,6 +54,9 @@ class MessagingViewModel @Inject constructor(
 
     private val threadId: String = checkNotNull(savedStateHandle["threadId"])
     private val peerId: String = threadId
+
+    val threadInfo = threadRepository.observeThreadEntity(threadId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val uiState: StateFlow<MessagingUiState> = kotlinx.coroutines.flow.flow {
         try {
@@ -112,9 +117,14 @@ class MessagingViewModel @Inject constructor(
             val senderId = "local_peer"
             val plaintext = text.toByteArray()
 
+            // Get Thread Expiration
+            val thread = threadRepository.getThreadEntity(threadId)
+            val expiresIn = thread?.defaultExpiration ?: 0
+            val expiresAt = if (expiresIn > 0) now + (expiresIn * 1000) else null
+
             try {
                 // Wrap in TransportMessage.Chat before encryption
-                val chatMessage = TransportMessage.Chat(plaintext)
+                val chatMessage = TransportMessage.Chat(plaintext, expiresIn)
                 val chatBytes = chatMessage.toBytes()
 
                 val ciphertext = ratchetManager.encrypt(peerId, chatBytes)
@@ -131,7 +141,8 @@ class MessagingViewModel @Inject constructor(
                     sentAt = now,
                     deliveryState = "SENT",
                     deliveredAt = null,
-                    readAt = null
+                    readAt = null,
+                    expiresAt = expiresAt
                 )
                 messageRepository.saveMessage(messageEntity)
             } catch (e: Exception) {
@@ -209,6 +220,12 @@ class MessagingViewModel @Inject constructor(
     fun tagMessage(messageId: String, topic: String) {
         viewModelScope.launch {
             messageRepository.tagMessage(messageId, topic)
+        }
+    }
+
+    fun setDisappearingTimer(seconds: Int) {
+        viewModelScope.launch {
+            threadRepository.updateThreadExpiration(threadId, if (seconds > 0) seconds else null)
         }
     }
 }

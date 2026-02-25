@@ -39,4 +39,7 @@ interface MessageDao {
         WHERE fts.decrypted_content MATCH :query
     """)
     fun searchMessagesFts(query: String): Flow<List<MessageEntity>>
+
+    @Query("DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at < :now")
+    suspend fun deleteExpiredMessages(now: Long): Int
 }

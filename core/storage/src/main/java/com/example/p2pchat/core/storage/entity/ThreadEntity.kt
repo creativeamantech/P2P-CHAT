@@ -10,5 +10,6 @@ data class ThreadEntity(
     val name: String,
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "last_activity") val lastActivity: Long,
-    @ColumnInfo(name = "is_pinned") val isPinned: Boolean
+    @ColumnInfo(name = "is_pinned") val isPinned: Boolean,
+    @ColumnInfo(name = "default_expiration") val defaultExpiration: Int? = null // Seconds
 )
