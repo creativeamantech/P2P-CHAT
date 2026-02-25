@@ -28,19 +28,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 
+import androidx.compose.material.icons.filled.List
+
 @Composable
 fun ConversationsRoute(
     viewModel: ConversationsViewModel = hiltViewModel(),
     onNavigateToChat: (String) -> Unit,
     onNavigateToPeers: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToTopics: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
     ConversationsScreen(
         uiState = uiState,
         onNavigateToChat = onNavigateToChat,
         onNavigateToPeers = onNavigateToPeers,
-        onNavigateToSettings = onNavigateToSettings
+        onNavigateToSettings = onNavigateToSettings,
+        onNavigateToTopics = onNavigateToTopics
     )
 }
 
@@ -50,7 +54,8 @@ fun ConversationsScreen(
     uiState: ConversationsUiState,
     onNavigateToChat: (String) -> Unit,
     onNavigateToPeers: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToTopics: () -> Unit
 ) {
     var query by remember { mutableStateOf("") }
     var active by remember { mutableStateOf(false) }
@@ -63,6 +68,9 @@ fun ConversationsScreen(
                     actions = {
                         IconButton(onClick = { active = true }) {
                             Icon(Icons.Default.Search, contentDescription = "Search")
+                        }
+                        IconButton(onClick = onNavigateToTopics) {
+                            Icon(Icons.Default.List, contentDescription = "Topics")
                         }
                         IconButton(onClick = onNavigateToPeers) {
                             Icon(Icons.Default.Person, contentDescription = "Peers")

@@ -181,9 +181,19 @@ fun MessageList(
     onReply: (Message) -> Unit,
     onTag: (Message) -> Unit
 ) {
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(8.dp),
+        reverseLayout = true // Chat usually starts from bottom
+    ) {
         items(messages) { message ->
             if (message != null) {
+                // If we had the full tree, we would render ThreadNode here.
+                // With Paging 3, we get a flat list.
+                // To simulate threading, we can look at parentMessageId.
+                // But a true tree view is hard with Paging.
+                // We will render as flat list with visual cues for replies.
                 MessageItem(message = message, onReply = onReply, onTag = onTag)
             }
         }
@@ -196,24 +206,39 @@ fun MessageItem(
     onReply: (Message) -> Unit,
     onTag: (Message) -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (message.senderId == "local_peer") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer)
-            .clickable { /* Show options */ }
-            .padding(8.dp)
-    ) {
-        if (message.parentMessageId != null) {
-            Text(
-                text = "Replying to...",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+    val isMe = message.senderId == "local_peer"
+    val alignment = if (isMe) Alignment.End else Alignment.Start
+    val color = if (isMe) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
 
-        // Image Attachments
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = alignment
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(vertical = 4.dp, horizontal = 8.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(color)
+                .clickable { /* Show options */ }
+                .padding(12.dp)
+        ) {
+            if (message.parentMessageId != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Reply",
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = " Replying...",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Image Attachments
         if (message.attachments.isNotEmpty()) {
             message.attachments.forEach { attachment ->
                 if (attachment.type.startsWith("image/")) {

@@ -29,6 +29,7 @@ import com.example.p2pchat.feature.peers.PeerDetailsScreen
 import com.example.p2pchat.feature.peers.PeersRoute
 import com.example.p2pchat.feature.peers.scan.ScanQrScreen
 import com.example.p2pchat.feature.settings.CreateIdentityRoute
+import com.example.p2pchat.feature.topics.TopicsRoute
 import dagger.hilt.android.AndroidEntryPoint
 import com.example.p2pchat.feature.peers.ChatAddressHelper
 import com.example.p2pchat.feature.peers.PeersViewModel
@@ -114,7 +115,15 @@ fun P2PChatAppContent(
                     },
                     onNavigateToSettings = {
                         navController.navigate("settings")
+                    },
+                    onNavigateToTopics = {
+                        navController.navigate("topics")
                     }
+                )
+            }
+            composable("topics") {
+                TopicsRoute(
+                    onBackClick = { navController.popBackStack() }
                 )
             }
             composable("chat/{threadId}") { backStackEntry ->
