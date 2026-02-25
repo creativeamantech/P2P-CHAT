@@ -38,6 +38,9 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
+    @Inject
+    lateinit var peersViewModel: PeersViewModel
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -61,6 +64,8 @@ class MainActivity : ComponentActivity() {
 
         requestPermissionLauncher.launch(permissions.toTypedArray())
 
+        handleDeepLink(intent)
+
         setContent {
             val initialLink = intent?.data?.toString()
             P2PChatAppContent(initialLink = initialLink)
@@ -70,6 +75,17 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        handleDeepLink(intent)
+    }
+
+    private fun handleDeepLink(intent: Intent?) {
+        intent?.data?.let { uri ->
+            if (uri.scheme == "p2pchat" && uri.host == "peer") {
+                // p2pchat://peer/...
+                // Pass raw URI to ViewModel
+                peersViewModel.importPeer(uri.toString())
+            }
+        }
     }
 }
 
