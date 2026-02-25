@@ -27,6 +27,12 @@ class CreateIdentityViewModel @Inject constructor(
             identityManager.createIdentity(displayName, "PERMANENT")
         }
     }
+
+    fun createBurnerIdentity(durationSeconds: Long) {
+        viewModelScope.launch {
+            identityManager.createBurnerIdentity("Anonymous", durationSeconds)
+        }
+    }
 }
 
 @HiltViewModel

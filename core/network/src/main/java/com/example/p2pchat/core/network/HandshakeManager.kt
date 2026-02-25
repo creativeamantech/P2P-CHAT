@@ -9,9 +9,34 @@ import org.bouncycastle.crypto.params.X25519PublicKeyParameters
 import javax.inject.Inject
 import javax.inject.Singleton
 
+// Forward declaration to break circular dependency if any.
+// ConnectionManager is used to find the transport.
+// But ConnectionManager depends on HandshakeManager?
+// Let's check ConnectionManager.
+// Yes, ConnectionManager injects HandshakeManager via MessageProcessor?
+// No, MessageProcessor injects HandshakeManager.
+// ConnectionManager injects MessageProcessor?
+// Let's check imports. HandshakeManager needs a way to send message.
+// ConnectionManager has `getActiveTransport(peerId)`.
+// We can inject `Provider<ConnectionManager>` or refactor.
+// Or just inject `ConnectionManager` if no cycle.
+// Cycle: ConnectionManager -> MessageFlushWorker -> ...
+// Cycle: MessageProcessor -> ConnectionManager.
+// Cycle: HandshakeManager -> ConnectionManager.
+// MessageProcessor -> HandshakeManager.
+// So: MP -> HM -> CM -> MP (Cycle!).
+
+// Solution: HandshakeManager should not depend on ConnectionManager directly if CM depends on MP which depends on HM.
+// Instead, HandshakeManager should return the handshake message to the caller?
+// Or we use a callback or an interface `TransportProvider`.
+// OR we break the cycle by injecting `Lazy<ConnectionManager>` or `Provider`.
+// Let's use `javax.inject.Provider`.
+
+import javax.inject.Provider
+
 @Singleton
 class HandshakeManager @Inject constructor(
-    private val transport: P2PTransport,
+    private val connectionManagerProvider: Provider<ConnectionManager>,
     private val cryptoManager: CryptoManager,
     private val ratchetManager: RatchetManager
 ) {
@@ -33,7 +58,12 @@ class HandshakeManager @Inject constructor(
 
         pendingHandshakes[peerId] = myEph
 
-        transport.sendHandshake(handshakeMsg, peerId)
+        val transport = connectionManagerProvider.get().getActiveTransport(peerId)
+        if (transport != null) {
+            transport.sendHandshake(handshakeMsg, peerId)
+        } else {
+            Log.e("Handshake", "No active transport for $peerId")
+        }
     }
 
     suspend fun onHandshakeReceived(peerId: String, msg: TransportMessage.Handshake) {
@@ -112,7 +142,12 @@ class HandshakeManager @Inject constructor(
                 ephemeralKey = myEphB.public.encoded
             )
 
-            transport.sendHandshake(replyMsg, peerId)
+            val transport = connectionManagerProvider.get().getActiveTransport(peerId)
+            if (transport != null) {
+                transport.sendHandshake(replyMsg, peerId)
+            } else {
+                Log.e("Handshake", "No active transport to reply to $peerId")
+            }
         }
     }
 }

@@ -59,7 +59,7 @@ class IdentityManager @Inject constructor(
         val xPriv = xPair.private as X25519PrivateKeyParameters
         val xPub = xPair.public as X25519PublicKeyParameters
 
-        // Store Keys securely mapped to alias (using EncryptedSharedPreferences for now, similar to CryptoManagerImpl)
+        // Store Keys securely mapped to alias
         sharedPreferences.edit()
             .putString("${edAlias}_priv", Base64.encodeToString(edPriv.encoded, Base64.DEFAULT))
             .putString("${edAlias}_pub", Base64.encodeToString(edPub.encoded, Base64.DEFAULT))
@@ -80,6 +80,10 @@ class IdentityManager @Inject constructor(
 
         identityDao.insert(entity)
         return entity
+    }
+
+    suspend fun createBurnerIdentity(displayName: String, durationSeconds: Long): IdentityEntity {
+        return createIdentity(displayName, "BURNER", System.currentTimeMillis() + (durationSeconds * 1000))
     }
 
     suspend fun burnIdentity(id: String) {
