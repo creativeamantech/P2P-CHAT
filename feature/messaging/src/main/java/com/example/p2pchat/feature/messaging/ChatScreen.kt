@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -109,11 +111,14 @@ fun ChatContent(
             when (uiState) {
                 MessagingUiState.Loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 is MessagingUiState.Error -> Text("Error: ${uiState.message}", modifier = Modifier.align(Alignment.Center))
-                is MessagingUiState.Success -> MessageList(
-                    messages = uiState.messages,
-                    onReply = { replyingToMessageId = it.id },
-                    onTag = { taggingMessageId = it.id }
-                )
+                is MessagingUiState.Success -> {
+                    val messages = uiState.messages.collectAsLazyPagingItems()
+                    MessageList(
+                        messages = messages,
+                        onReply = { replyingToMessageId = it.id },
+                        onTag = { taggingMessageId = it.id }
+                    )
+                }
             }
         }
 
@@ -137,13 +142,15 @@ fun ChatContent(
 
 @Composable
 fun MessageList(
-    messages: List<Message>,
+    messages: LazyPagingItems<Message>,
     onReply: (Message) -> Unit,
     onTag: (Message) -> Unit
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize().padding(8.dp)) {
         items(messages) { message ->
-            MessageItem(message = message, onReply = onReply, onTag = onTag)
+            if (message != null) {
+                MessageItem(message = message, onReply = onReply, onTag = onTag)
+            }
         }
     }
 }

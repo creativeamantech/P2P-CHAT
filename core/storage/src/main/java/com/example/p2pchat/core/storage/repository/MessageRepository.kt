@@ -5,6 +5,9 @@ import com.example.p2pchat.core.storage.dao.MessageDao
 import com.example.p2pchat.core.storage.dao.MessageDaoWithAttachments
 import com.example.p2pchat.core.storage.dao.TopicDao
 import com.example.p2pchat.core.storage.entity.AttachmentEntity
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
 import com.example.p2pchat.core.storage.entity.MessageEntity
 import com.example.p2pchat.core.storage.entity.MessageWithAttachments
 import kotlinx.coroutines.flow.Flow
@@ -16,9 +19,19 @@ class MessageRepository @Inject constructor(
     private val attachmentDao: AttachmentDao,
     private val messageDaoWithAttachments: MessageDaoWithAttachments
 ) {
-    fun observeThread(threadId: String): Flow<List<MessageEntity>> {
-        return messageDao.observeThread(threadId)
+    fun observeThread(threadId: String): Flow<PagingData<MessageEntity>> {
+        return Pager(
+            config = PagingConfig(pageSize = 50, enablePlaceholders = false),
+            pagingSourceFactory = { messageDao.observeThread(threadId) }
+        ).flow
     }
+
+    // Legacy support or new pager for attachments?
+    // messageDaoWithAttachments.observeThreadWithAttachments(threadId) is also a Flow<List>.
+    // If we want paging for ChatScreen, we should use observeThread with Paging.
+    // Attachments loading strategy: Load on demand or join?
+    // Paging with Relation is possible.
+    // But MessageDaoWithAttachments needs to return PagingSource too.
 
     fun observeThreadWithAttachments(threadId: String): Flow<List<MessageWithAttachments>> {
         return messageDaoWithAttachments.observeThreadWithAttachments(threadId)

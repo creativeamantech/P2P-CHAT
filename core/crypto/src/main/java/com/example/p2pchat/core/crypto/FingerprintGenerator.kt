@@ -16,8 +16,12 @@ class FingerprintGenerator @Inject constructor() {
         val combined = key1 + key2
         val hash = MessageDigest.getInstance("SHA-512").digest(combined)
 
-        // Take 60 bytes to get 12 groups of 5 bytes -> 5 digits each
-        // But 5 bytes is 40 bits. 2^40 > 100000. So mod 100000 works.
+        // Doc says: "Format as 12 groups of 5 digits".
+        // Using 30 bytes? No, 30 bytes / 5 bytes-per-chunk = 6 chunks.
+        // We need 60 bytes to get 12 chunks.
+        // Or if doc implies 30 bytes total, then chunked(2.5)? No.
+        // Let's stick to 60 bytes logic for 12 groups of 5 digits.
+        // If hash is 64 bytes (SHA-512), we have enough.
 
         val bytesToUse = hash.take(60).toByteArray()
 

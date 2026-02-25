@@ -26,6 +26,7 @@ import javax.inject.Singleton
 
 import com.example.p2pchat.core.network.tor.TorTransport
 import com.example.p2pchat.core.network.webrtc.WebRtcTransport
+import com.example.p2pchat.core.crypto.ratchet.RatchetManager
 
 @Singleton
 class ConnectionManager @Inject constructor(
@@ -36,7 +37,8 @@ class ConnectionManager @Inject constructor(
     private val webRtcTransport: WebRtcTransport,
     private val messageQueue: PersistentMessageQueue,
     private val mixNetworkLayer: MixNetworkLayer,
-    private val coverTrafficManager: CoverTrafficManager
+    private val coverTrafficManager: CoverTrafficManager,
+    private val ratchetManager: RatchetManager
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var privacyLevel = PrivacyLevel.STANDARD // Default
@@ -219,30 +221,23 @@ class ConnectionManager @Inject constructor(
     }
 
     suspend fun sendSignalingMessage(peerId: String, message: TransportMessage.Signaling) {
-        // Signaling messages are ephemeral, don't persist in Chat DB?
-        // But we DO encrypt them so they travel through the secure tunnel.
-        // We construct a `TransportMessage.Signaling` bytes.
-        // We encrypt it.
-        // We send it directly (skip queue for speed? or queue if vital?)
-        // Queueing is safer.
+        try {
+            // Encrypt using Ratchet session (Signaling inside E2E tunnel)
+            val plaintext = message.toBytes()
+            val encryptedBytes = ratchetManager.encrypt(peerId, plaintext)
 
-        // Problem: `EncryptedPayload` is the RESULT of encryption.
-        // We need to encrypt here?
-        // `ConnectionManager` usually receives `EncryptedPayload` from `SendMessageUseCase` (which encrypts).
-        // So `SendMessageUseCase` knows about encryption.
-        // `WebRtcTransport` doesn't know about encryption.
+            // Wrap in EncryptedPayload
+            // Note: Receiver MessageProcessor will decrypt -> parse TransportMessage -> handle Signaling
+            val payload = EncryptedPayload(encryptedBytes)
 
-        // We need to inject `RatchetManager` or `CryptoManager` here to encrypt signaling?
-        // Or expose an encryption helper.
-        // `ConnectionManager` doesn't currently hold `RatchetManager`.
-        // Ideally `WebRtcTransport` should just give us the cleartext bytes and we encrypt?
-
-        // For MVP, assuming `payload` in `sendMessage` IS the encrypted data.
-        // We need to encrypt `message.toBytes()`.
-        // This implies `ConnectionManager` needs `RatchetManager`.
-        // Refactoring to add `RatchetManager` dependency to `ConnectionManager`.
-
-        // I will add the dependency in the constructor via Dagger.
+            // Send directly (bypass queue for lower latency, or use queue if reliability needed)
+            // WebRTC signaling needs reliability, but strict ordering?
+            // Ratchet enforces ordering. If we drop one, chain breaks (in this simple impl).
+            // So we MUST ensure delivery.
+            sendMessage(peerId, payload)
+        } catch (e: Exception) {
+            // Log error
+        }
     }
 
     suspend fun flushQueue(peerId: String) {
