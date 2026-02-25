@@ -155,14 +155,53 @@ class BluetoothTransport @Inject constructor(
         scope.launch {
             try {
                 while (true) {
-                    val length = inputStream?.readInt() ?: break
-                    val bytes = ByteArray(length)
-                    inputStream?.readFully(bytes)
-                    incomingMessages.send(EncryptedPayload(bytes))
+                    val type = inputStream?.readByte()?.toInt() ?: break
+
+                    if (type == 1) { // Handshake
+                        val idLen = inputStream!!.readInt()
+                        val idKey = ByteArray(idLen)
+                        inputStream!!.readFully(idKey)
+
+                        val exLen = inputStream!!.readInt()
+                        val exKey = ByteArray(exLen)
+                        inputStream!!.readFully(exKey)
+
+                        val ephLen = inputStream!!.readInt()
+                        val ephKey = ByteArray(ephLen)
+                        inputStream!!.readFully(ephKey)
+
+                        val handshake = TransportMessage.Handshake(idKey, exKey, ephKey)
+                        incomingMessages.send(EncryptedPayload(handshake.toBytes(), null, true))
+
+                    } else if (type == 2) { // Chat
+                        val len = inputStream!!.readInt()
+                        val payload = ByteArray(len)
+                        inputStream!!.readFully(payload)
+
+                        incomingMessages.send(EncryptedPayload(payload))
+                    } else if (type == 3) { // Attachment
+                        val transferId = inputStream!!.readUTF()
+                        val index = inputStream!!.readInt()
+                        val total = inputStream!!.readInt()
+                        val len = inputStream!!.readInt()
+                        val data = ByteArray(len)
+                        inputStream!!.readFully(data)
+
+                        val chunk = TransportMessage.AttachmentChunk(transferId, index, total, data)
+                        incomingMessages.send(EncryptedPayload(chunk.toBytes(), null, false, true))
+                    } else if (type == 4) { // Signaling
+                        val sigType = inputStream!!.readUTF()
+                        val sigPayload = inputStream!!.readUTF()
+                        // TODO: Handle Signaling
+                    } else {
+                        break
+                    }
                 }
             } catch (e: IOException) {
                 _connectionState.value = ConnectionState.Disconnected
                 closeSocket()
+            } catch (e: Exception) {
+                Log.e("BT", "Parse error", e)
             }
         }
     }
@@ -171,9 +210,10 @@ class BluetoothTransport @Inject constructor(
         return withContext(Dispatchers.IO) {
             try {
                 val out = outputStream ?: return@withContext Result.failure(Exception("Not connected"))
+                val msg = TransportMessage.Chat(payload.data)
+                val bytes = msg.toBytes()
                 synchronized(out) {
-                    out.writeInt(payload.data.size)
-                    out.write(payload.data)
+                    out.write(bytes)
                     out.flush()
                 }
                 Result.success(Unit)
@@ -183,7 +223,7 @@ class BluetoothTransport @Inject constructor(
         }
     }
 
-    override suspend fun sendHandshake(message: TransportMessage.Handshake): Result<Unit> {
+    override suspend fun sendHandshake(message: TransportMessage.Handshake, peerId: String?): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
                 val out = outputStream ?: return@withContext Result.failure(Exception("Not connected"))
@@ -199,7 +239,7 @@ class BluetoothTransport @Inject constructor(
         }
     }
 
-    override suspend fun sendAttachment(message: TransportMessage.AttachmentChunk): Result<Unit> {
+    override suspend fun sendAttachment(message: TransportMessage.AttachmentChunk, peerId: String?): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
                 val out = outputStream ?: return@withContext Result.failure(Exception("Not connected"))

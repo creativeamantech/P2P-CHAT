@@ -9,7 +9,7 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import com.example.p2pchat.core.storage.entity.MessageEntity
-import com.example.p2pchat.core.storage.entity.MessageWithAttachments
+import com.example.p2pchat.core.storage.relation.MessageWithAttachments
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 
@@ -19,7 +19,7 @@ class MessageRepository @Inject constructor(
     private val attachmentDao: AttachmentDao,
     private val messageDaoWithAttachments: MessageDaoWithAttachments
 ) {
-    fun observeThread(threadId: String): Flow<PagingData<MessageEntity>> {
+    fun observeThread(threadId: String): Flow<PagingData<MessageWithAttachments>> {
         return Pager(
             config = PagingConfig(pageSize = 50, enablePlaceholders = false),
             pagingSourceFactory = { messageDao.observeThread(threadId) }

@@ -8,12 +8,14 @@ import androidx.room.Query
 import androidx.room.Transaction
 import com.example.p2pchat.core.storage.entity.MessageEntity
 import com.example.p2pchat.core.storage.entity.MessageFtsEntity
+import com.example.p2pchat.core.storage.relation.MessageWithAttachments
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface MessageDao {
+    @Transaction
     @Query("SELECT * FROM messages WHERE thread_id = :threadId ORDER BY sent_at ASC")
-    fun observeThread(threadId: String): PagingSource<Int, MessageEntity>
+    fun observeThread(threadId: String): PagingSource<Int, MessageWithAttachments>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: MessageEntity)

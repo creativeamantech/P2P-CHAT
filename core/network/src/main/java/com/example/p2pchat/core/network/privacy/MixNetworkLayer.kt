@@ -73,7 +73,7 @@ class MixNetworkLayer @Inject constructor() {
 
                 batch.forEach { msg ->
                     try {
-                        msg.transport.send(msg.payload)
+                        msg.transport.send(msg.payload, msg.peerId)
                     } catch (e: Exception) {
                         // Log error
                     }

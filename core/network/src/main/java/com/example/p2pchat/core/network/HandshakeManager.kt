@@ -33,7 +33,7 @@ class HandshakeManager @Inject constructor(
 
         pendingHandshakes[peerId] = myEph
 
-        transport.sendHandshake(handshakeMsg)
+        transport.sendHandshake(handshakeMsg, peerId)
     }
 
     suspend fun onHandshakeReceived(peerId: String, msg: TransportMessage.Handshake) {
@@ -112,7 +112,7 @@ class HandshakeManager @Inject constructor(
                 ephemeralKey = myEphB.public.encoded
             )
 
-            transport.sendHandshake(replyMsg)
+            transport.sendHandshake(replyMsg, peerId)
         }
     }
 }

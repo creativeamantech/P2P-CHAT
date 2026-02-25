@@ -10,7 +10,10 @@ import com.example.p2pchat.core.model.DeliveryState
 import com.example.p2pchat.core.model.Message
 import com.example.p2pchat.core.network.ConnectionManager
 import com.example.p2pchat.core.network.EncryptedPayload
+import android.util.Base64
+import com.example.p2pchat.core.crypto.AttachmentCipher
 import com.example.p2pchat.core.network.FileTransferManager
+import com.example.p2pchat.core.network.TransportMessage
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.map
@@ -18,6 +21,7 @@ import com.example.p2pchat.core.storage.entity.AttachmentEntity
 import com.example.p2pchat.core.storage.entity.MessageEntity
 import com.example.p2pchat.core.storage.repository.AttachmentRepository
 import com.example.p2pchat.core.storage.repository.MessageRepository
+import com.example.p2pchat.core.storage.relation.MessageWithAttachments
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -42,6 +46,7 @@ class MessagingViewModel @Inject constructor(
     private val ratchetManager: RatchetManager,
     private val connectionManager: ConnectionManager,
     private val fileTransferManager: FileTransferManager,
+    private val attachmentCipher: AttachmentCipher,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -52,47 +57,23 @@ class MessagingViewModel @Inject constructor(
         try {
             val pagingData = messageRepository.observeThread(threadId)
                 .map { pagingData ->
-                    pagingData.map { entity ->
+                    pagingData.map { relation ->
+                        val entity = relation.message
+                        val attachments = relation.attachments.map { att ->
+                            Attachment(
+                                id = att.id,
+                                type = att.type,
+                                url = att.uri,
+                                size = att.size,
+                                filename = att.filename
+                            )
+                        }
+
                         val clearText = try {
                             String(entity.encryptedContent)
                         } catch (e: Exception) {
                             "[Error]"
                         }
-
-                        // Load attachments?
-                        // Paging map is synchronous transform.
-                        // We cannot launch coroutine here easily.
-                        // For Paging, we usually fetch relations via Room's @Relation but we are using PagingSource<Int, MessageEntity>.
-                        // We need PagingSource<Int, MessageWithAttachments>.
-                        // But I didn't update MessageRepository to return PagingSource<Int, MessageWithAttachments>.
-                        // I updated observeThread to return PagingData<MessageEntity>.
-
-                        // To support Attachments with Paging:
-                        // 1. Update MessageRepository to return Pager of MessageWithAttachments.
-                        // 2. OR load attachments async in UI? (Too complex for MVP)
-                        // 3. OR Assume no attachments in list view for MVP paging refactor?
-
-                        // Let's stick to MessageEntity and empty attachments for list view performance,
-                        // unless I fix MessageRepository to use MessageDaoWithAttachmentsPaging.
-
-                        // Actually, I can just update MessageRepository to use the new DAO method I added!
-                        // `observeThreadWithAttachmentsPaging` in `MessageDaoWithAttachments`.
-
-                        // Wait, I need to use `messageRepository` here.
-                        // Does `messageRepository` expose `observeThreadWithAttachmentsPaging`?
-                        // No, I need to add it.
-
-                        // I will assume I added it or will add it.
-                        // But since I can't edit Repository in same step easily without breaking flow...
-                        // I'll stick to `MessageEntity` mapping for now and ignore attachments in list view?
-                        // No, image previews are key.
-
-                        // I will update MessageRepository first?
-                        // I can't go back easily.
-
-                        // I will map MessageEntity -> Message with empty attachments.
-                        // BUT, to be correct, I should have updated Repo.
-                        // Let's try to map what we have.
 
                         Message(
                             id = entity.id,
@@ -103,7 +84,7 @@ class MessagingViewModel @Inject constructor(
                             iv = entity.iv,
                             clearTextCache = clearText,
                             topics = emptySet(),
-                            attachments = emptyList(), // Attachments missing in paging flow for now
+                            attachments = attachments,
                             sentAt = kotlinx.datetime.Instant.fromEpochMilliseconds(entity.sentAt),
                             deliveryState = DeliveryState.Pending,
                             reactions = emptyMap()
@@ -132,7 +113,11 @@ class MessagingViewModel @Inject constructor(
             val plaintext = text.toByteArray()
 
             try {
-                val ciphertext = ratchetManager.encrypt(peerId, plaintext)
+                // Wrap in TransportMessage.Chat before encryption
+                val chatMessage = TransportMessage.Chat(plaintext)
+                val chatBytes = chatMessage.toBytes()
+
+                val ciphertext = ratchetManager.encrypt(peerId, chatBytes)
 
                 connectionManager.sendMessage(peerId, EncryptedPayload(ciphertext))
 
@@ -157,10 +142,10 @@ class MessagingViewModel @Inject constructor(
 
     fun sendImage(uri: Uri) {
         viewModelScope.launch {
-            // 1. Save attachment locally
+            // 1. Save attachment locally (original plaintext)
             val file = attachmentRepository.saveAttachment(uri) ?: return@launch
 
-            // 2. Create Attachment Entity
+            // 2. Create Attachment Entity (for local display)
             val attachmentId = UUID.randomUUID().toString()
             val attachmentEntity = AttachmentEntity(
                 id = attachmentId,
@@ -191,17 +176,32 @@ class MessagingViewModel @Inject constructor(
             messageRepository.saveMessage(messageEntity)
             messageRepository.saveAttachment(attachmentEntity.copy(messageId = messageId))
 
-            // 5. Send Transfer
+            // 5. Encrypt file for transfer
+            val encryptedFile = java.io.File(file.parentFile, "${file.name}.enc")
+            val encryptionResult = attachmentCipher.encryptFile(file, encryptedFile)
+            val keyBase64 = Base64.encodeToString(encryptionResult.key, Base64.NO_WRAP)
+            val ivBase64 = Base64.encodeToString(encryptionResult.iv, Base64.NO_WRAP)
+
+            // 6. Send Transfer (Encrypted File)
             val transferId = UUID.randomUUID().toString()
             val transport = connectionManager.getActiveTransport(peerId)
 
             if (transport != null) {
-                fileTransferManager.sendFile(peerId, file, transport, transferId)
+                fileTransferManager.sendFile(peerId, encryptedFile, transport, transferId)
 
-                // 6. Send Metadata Message
-                val meta = "ATTACHMENT_POINTER:$transferId:${file.name}"
-                val ciphertext = ratchetManager.encrypt(peerId, meta.toByteArray())
+                // 7. Send Metadata Message (with Key/IV)
+                // Format: ATTACHMENT_POINTER:transferId:filename:key:iv
+                val meta = "ATTACHMENT_POINTER:$transferId:${file.name}:$keyBase64:$ivBase64"
+
+                // Wrap metadata in Chat message (treated as text command)
+                val metaMessage = TransportMessage.Chat(meta.toByteArray())
+                val metaBytes = metaMessage.toBytes()
+
+                val ciphertext = ratchetManager.encrypt(peerId, metaBytes)
                 connectionManager.sendMessage(peerId, EncryptedPayload(ciphertext))
+
+                // Cleanup temp encrypted file? Maybe keep for retry?
+                // encryptedFile.delete() // Don't delete immediately if async send
             }
         }
     }

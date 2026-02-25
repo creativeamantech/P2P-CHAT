@@ -267,7 +267,7 @@ class WifiDirectTransport @Inject constructor(
         }
     }
 
-    override suspend fun sendHandshake(message: TransportMessage.Handshake): Result<Unit> {
+    override suspend fun sendHandshake(message: TransportMessage.Handshake, peerId: String?): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
                 val out = outputStream ?: return@withContext Result.failure(Exception("Not connected"))
@@ -283,7 +283,7 @@ class WifiDirectTransport @Inject constructor(
         }
     }
 
-    override suspend fun sendAttachment(message: TransportMessage.AttachmentChunk): Result<Unit> {
+    override suspend fun sendAttachment(message: TransportMessage.AttachmentChunk, peerId: String?): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
                 val out = outputStream ?: return@withContext Result.failure(Exception("Not connected"))

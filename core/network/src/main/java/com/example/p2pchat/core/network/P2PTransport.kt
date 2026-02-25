@@ -19,8 +19,8 @@ interface P2PTransport {
         return send(payload) // Default implementation ignores peerId
     }
 
-    suspend fun sendHandshake(message: TransportMessage.Handshake): Result<Unit>
-    suspend fun sendAttachment(message: TransportMessage.AttachmentChunk): Result<Unit> // Added
+    suspend fun sendHandshake(message: TransportMessage.Handshake, peerId: String? = null): Result<Unit>
+    suspend fun sendAttachment(message: TransportMessage.AttachmentChunk, peerId: String? = null): Result<Unit> // Added
     fun receive(): Flow<EncryptedPayload>
     suspend fun disconnect()
 }

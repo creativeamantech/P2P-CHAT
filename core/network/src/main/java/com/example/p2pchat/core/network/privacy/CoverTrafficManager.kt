@@ -42,7 +42,7 @@ class CoverTrafficManager @Inject constructor(
                     val encryptedData = ratchetManager.encrypt(peerId, plaintext)
 
                     // Send
-                    transport.send(EncryptedPayload(encryptedData, null))
+                    transport.send(EncryptedPayload(encryptedData, null), peerId)
                 } catch (e: Exception) {
                     // Ignore errors (e.g. no session yet)
                 }

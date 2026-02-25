@@ -4,7 +4,9 @@ import android.content.Context
 import android.net.Uri
 import android.util.Base64
 import android.util.Log
+import com.example.p2pchat.core.crypto.AttachmentCipher
 import com.example.p2pchat.core.crypto.ratchet.RatchetManager
+import com.example.p2pchat.core.network.webrtc.WebRtcTransport
 import com.example.p2pchat.core.storage.entity.AttachmentEntity
 import com.example.p2pchat.core.storage.entity.MessageEntity
 import com.example.p2pchat.core.storage.repository.MessageRepository
@@ -16,6 +18,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,9 +29,20 @@ class MessageProcessor @Inject constructor(
     private val ratchetManager: RatchetManager,
     private val messageRepository: MessageRepository,
     private val fileTransferManager: FileTransferManager,
+    private val webRtcTransport: WebRtcTransport,
+    private val attachmentCipher: AttachmentCipher,
     @ApplicationContext private val context: Context
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    private data class PendingAttachmentInfo(
+        val key: ByteArray,
+        val iv: ByteArray,
+        val messageId: String,
+        val filename: String
+    )
+
+    private val pendingKeys = ConcurrentHashMap<String, PendingAttachmentInfo>()
 
     fun start() {
         connectionManager.incomingMessages.onEach { payload ->
@@ -54,20 +68,39 @@ class MessageProcessor @Inject constructor(
                     if (message is TransportMessage.AttachmentChunk) {
                         val completedFile = fileTransferManager.receiveChunk(message)
                         if (completedFile != null) {
-                            // File received!
-                            // Move to attachments dir
-                            val attachmentDir = File(context.filesDir, "attachments").apply { mkdirs() }
-                            val destFile = File(attachmentDir, "${UUID.randomUUID()}.jpg") // Assume jpg for now
-                            completedFile.copyTo(destFile, overwrite = true)
-                            completedFile.delete()
+                            // File received (Encrypted)!
+                            val transferId = message.transferId
 
-                            // We need to link this to a message.
-                            // Currently the chunk doesn't have messageID.
-                            // We expect a text message with "ATTACHMENT_POINTER:transferId" to arrive via Ratchet.
-                            // OR we save it as "Orphaned" and link when message arrives.
+                            // Check if we have pending keys
+                            val info = pendingKeys.remove(transferId)
+                            if (info != null) {
+                                // Decrypt immediately
+                                val attachmentDir = File(context.filesDir, "attachments").apply { mkdirs() }
+                                val destFile = File(attachmentDir, "${UUID.randomUUID()}.jpg")
+                                attachmentCipher.decryptFile(completedFile, destFile, info.key, info.iv)
+                                completedFile.delete()
 
-                            // For MVP simplicity: Just log it.
-                            Log.d("MessageProcessor", "File received: ${destFile.absolutePath}")
+                                // Save Attachment Entity
+                                val attachmentEntity = AttachmentEntity(
+                                    id = UUID.randomUUID().toString(),
+                                    messageId = info.messageId,
+                                    type = "image/jpeg",
+                                    size = destFile.length(),
+                                    filename = info.filename,
+                                    uri = destFile.absolutePath
+                                )
+                                messageRepository.saveAttachment(attachmentEntity)
+
+                                // Update Message content to show attachment is ready?
+                                // Ideally yes, but tricky to update specific message content dynamically here without knowing logic.
+                                // But at least the attachment is linked now.
+                            } else {
+                                // Save as pending encrypted file
+                                val tempDir = File(context.filesDir, "temp_transfers").apply { mkdirs() }
+                                val encFile = File(tempDir, "${transferId}.enc")
+                                completedFile.copyTo(encFile, overwrite = true)
+                                completedFile.delete()
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -79,29 +112,84 @@ class MessageProcessor @Inject constructor(
                 if (peerId != null) {
                     val decrypted = ratchetManager.decrypt(peerId, payload.data)
                     if (decrypted != null) {
-                        val content = String(decrypted)
+                        try {
+                            val msg = TransportMessage.fromBytes(decrypted)
+                            when (msg) {
+                                is TransportMessage.Chat -> {
+                                    val content = String(msg.payload)
+                                    val messageId = UUID.randomUUID().toString()
+                                    var displayContent = msg.payload
 
-                        // Check for Attachment Pointer
-                        // Format: "ATTACHMENT_POINTER:transferId:filename"
-                        if (content.startsWith("ATTACHMENT_POINTER:")) {
-                            // Handle logic to link previously received file
-                            // For MVP, just save as text for now
+                                    // Check for Attachment Pointer
+                                    if (content.startsWith("ATTACHMENT_POINTER:")) {
+                                        // content: ATTACHMENT_POINTER:transferId:filename:key:iv
+                                        val parts = content.split(":")
+                                        if (parts.size >= 5) {
+                                            val transferId = parts[1]
+                                            val filename = parts[2]
+                                            val key = Base64.decode(parts[3], Base64.DEFAULT)
+                                            val iv = Base64.decode(parts[4], Base64.DEFAULT)
+
+                                            // Check for file
+                                            val tempDir = File(context.filesDir, "temp_transfers")
+                                            val encFile = File(tempDir, "${transferId}.enc")
+
+                                            if (encFile.exists()) {
+                                                // Decrypt
+                                                val attachmentDir = File(context.filesDir, "attachments").apply { mkdirs() }
+                                                val destFile = File(attachmentDir, "${UUID.randomUUID()}.jpg")
+                                                try {
+                                                    attachmentCipher.decryptFile(encFile, destFile, key, iv)
+                                                    encFile.delete()
+
+                                                    // Save Attachment Entity
+                                                    val attachmentEntity = AttachmentEntity(
+                                                        id = UUID.randomUUID().toString(),
+                                                        messageId = messageId,
+                                                        type = "image/jpeg",
+                                                        size = destFile.length(),
+                                                        filename = filename,
+                                                        uri = destFile.absolutePath
+                                                    )
+                                                    messageRepository.saveAttachment(attachmentEntity)
+                                                    displayContent = "[Image Attachment]".toByteArray()
+                                                } catch (e: Exception) {
+                                                    Log.e("MessageProcessor", "Decryption failed", e)
+                                                    displayContent = "[Decryption Failed]".toByteArray()
+                                                }
+                                            } else {
+                                                // File not arrived yet. Store keys.
+                                                pendingKeys[transferId] = PendingAttachmentInfo(key, iv, messageId, filename)
+                                                displayContent = "[Downloading Image...]".toByteArray()
+                                            }
+                                        }
+                                    }
+
+                                    messageRepository.saveMessage(
+                                        MessageEntity(
+                                            id = messageId,
+                                            threadId = peerId,
+                                            parentMessageId = null,
+                                            senderId = peerId,
+                                            encryptedContent = displayContent,
+                                            iv = ByteArray(0),
+                                            sentAt = System.currentTimeMillis(),
+                                            deliveryState = "READ",
+                                            deliveredAt = System.currentTimeMillis(),
+                                            readAt = System.currentTimeMillis()
+                                        )
+                                    )
+                                }
+                                is TransportMessage.Signaling -> {
+                                    webRtcTransport.onSignalingMessage(peerId, msg)
+                                }
+                                else -> {
+                                    Log.w("MessageProcessor", "Unexpected message type inside encryption")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e("MessageProcessor", "Failed to parse decrypted message", e)
                         }
-
-                        messageRepository.saveMessage(
-                            MessageEntity(
-                                id = UUID.randomUUID().toString(),
-                                threadId = peerId,
-                                parentMessageId = null,
-                                senderId = peerId,
-                                encryptedContent = decrypted,
-                                iv = ByteArray(0),
-                                sentAt = System.currentTimeMillis(),
-                                deliveryState = "READ",
-                                deliveredAt = System.currentTimeMillis(),
-                                readAt = System.currentTimeMillis()
-                            )
-                        )
                     }
                 } else {
                     Log.w("MessageProcessor", "Received chat message without senderId")
