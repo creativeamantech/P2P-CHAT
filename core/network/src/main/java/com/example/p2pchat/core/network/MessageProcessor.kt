@@ -5,11 +5,14 @@ import android.net.Uri
 import android.util.Base64
 import android.util.Log
 import com.example.p2pchat.core.crypto.AttachmentCipher
+import com.example.p2pchat.core.crypto.group.GroupCipher
+import com.example.p2pchat.core.crypto.group.SenderKeyManager
 import com.example.p2pchat.core.crypto.ratchet.RatchetManager
 import com.example.p2pchat.core.network.webrtc.WebRtcTransport
 import com.example.p2pchat.core.storage.entity.AttachmentEntity
 import com.example.p2pchat.core.storage.entity.MessageEntity
 import com.example.p2pchat.core.storage.repository.MessageRepository
+import com.example.p2pchat.core.storage.repository.ThreadRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,9 +31,12 @@ class MessageProcessor @Inject constructor(
     private val handshakeManager: HandshakeManager,
     private val ratchetManager: RatchetManager,
     private val messageRepository: MessageRepository,
+    private val threadRepository: ThreadRepository,
     private val fileTransferManager: FileTransferManager,
     private val webRtcTransport: WebRtcTransport,
     private val attachmentCipher: AttachmentCipher,
+    private val senderKeyManager: SenderKeyManager,
+    private val groupCipher: GroupCipher,
     @ApplicationContext private val context: Context
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -229,6 +235,57 @@ class MessageProcessor @Inject constructor(
 
                                         // Better: Just log it for now until I add a parser.
                                         Log.d("MessageProcessor", "Received reaction: ${msg.emoji} from $peerId")
+                                    }
+                                }
+                                is TransportMessage.SenderKeyDistribution -> {
+                                    // Save the sender key for this group
+                                    senderKeyManager.saveReceivedSenderKey(msg.groupId, peerId, msg.chainKey)
+                                    // Ensure group exists
+                                    if (threadRepository.getThreadEntity(msg.groupId) == null) {
+                                        threadRepository.createThread(msg.groupId, "Unknown Group", "GROUP")
+                                        threadRepository.addParticipant(msg.groupId, peerId, "ADMIN")
+                                    } else {
+                                        // Add participant if not exists
+                                        threadRepository.addParticipant(msg.groupId, peerId)
+                                    }
+                                }
+                                is TransportMessage.GroupMessage -> {
+                                    // Decrypt payload with Sender Key
+                                    try {
+                                        val plaintext = groupCipher.decrypt(msg.groupId, peerId, msg.payload)
+                                        val content = String(plaintext)
+                                        val messageId = UUID.randomUUID().toString()
+                                        val now = System.currentTimeMillis()
+                                        val expiresAt = if (msg.expiresInSeconds > 0) now + (msg.expiresInSeconds * 1000L) else null
+
+                                        // Ensure thread exists (if missed key dist)
+                                        if (threadRepository.getThreadEntity(msg.groupId) == null) {
+                                            threadRepository.createThread(msg.groupId, "Unknown Group", "GROUP")
+                                        }
+
+                                        messageRepository.saveMessage(
+                                            MessageEntity(
+                                                id = messageId,
+                                                threadId = msg.groupId,
+                                                parentMessageId = null,
+                                                senderId = peerId,
+                                                encryptedContent = plaintext, // Store decrypted for local use? Or keep encrypted?
+                                                // Ideally we store encrypted and decrypt on fly, but for GroupCipher we rotate keys.
+                                                // If we don't store plaintext, we can't read old messages after key rotation unless we store OLD keys.
+                                                // For MVP, store PLAINTEXT (or re-encrypt with local key).
+                                                // MessageEntity.encryptedContent implies local encryption.
+                                                // Current app implementation stores "encryptedContent" but it's often just bytes.
+                                                // Let's store plaintext bytes for now (in memory DB it's protected by SQLCipher).
+                                                iv = ByteArray(0),
+                                                sentAt = now,
+                                                deliveryState = "READ",
+                                                deliveredAt = now,
+                                                readAt = now,
+                                                expiresAt = expiresAt
+                                            )
+                                        )
+                                    } catch (e: Exception) {
+                                        Log.e("MessageProcessor", "Failed to decrypt group message", e)
                                     }
                                 }
                                 else -> {

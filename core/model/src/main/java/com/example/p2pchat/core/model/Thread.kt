@@ -8,5 +8,6 @@ data class Thread(
     val participants: List<String>, // peer IDs
     val createdAt: Instant,
     val lastActivity: Instant,
-    val isPinned: Boolean
+    val isPinned: Boolean,
+    val type: String = "ONE_TO_ONE" // ONE_TO_ONE, GROUP
 )

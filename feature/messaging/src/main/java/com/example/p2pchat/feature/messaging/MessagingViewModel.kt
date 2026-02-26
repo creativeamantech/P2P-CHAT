@@ -5,6 +5,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.p2pchat.core.crypto.ratchet.RatchetManager
+import com.example.p2pchat.core.crypto.group.GroupCipher
+import com.example.p2pchat.core.crypto.CryptoManager
 import com.example.p2pchat.core.model.Attachment
 import com.example.p2pchat.core.model.DeliveryState
 import com.example.p2pchat.core.model.Message
@@ -46,6 +48,8 @@ class MessagingViewModel @Inject constructor(
     private val threadRepository: ThreadRepository,
     private val attachmentRepository: AttachmentRepository,
     private val ratchetManager: RatchetManager,
+    private val groupCipher: GroupCipher,
+    private val cryptoManager: CryptoManager,
     private val connectionManager: ConnectionManager,
     private val fileTransferManager: FileTransferManager,
     private val attachmentCipher: AttachmentCipher,
@@ -114,28 +118,47 @@ class MessagingViewModel @Inject constructor(
         viewModelScope.launch {
             val now = Clock.System.now().toEpochMilliseconds()
             val messageId = UUID.randomUUID().toString()
-            val senderId = "local_peer"
+            val myId = cryptoManager.getMyIdentity()?.userId ?: "local_peer"
             val plaintext = text.toByteArray()
 
             // Get Thread Expiration
             val thread = threadRepository.getThreadEntity(threadId)
             val expiresIn = thread?.defaultExpiration ?: 0
             val expiresAt = if (expiresIn > 0) now + (expiresIn * 1000) else null
+            val isGroup = thread?.type == "GROUP"
 
             try {
-                // Wrap in TransportMessage.Chat before encryption
-                val chatMessage = TransportMessage.Chat(plaintext, expiresIn)
-                val chatBytes = chatMessage.toBytes()
+                if (isGroup) {
+                    // GROUP LOGIC
+                    val groupCiphertext = groupCipher.encrypt(threadId, myId, plaintext)
+                    val groupMsg = TransportMessage.GroupMessage(threadId, groupCiphertext, expiresIn)
+                    val groupMsgBytes = groupMsg.toBytes()
 
-                val ciphertext = ratchetManager.encrypt(peerId, chatBytes)
+                    val participants = threadRepository.getParticipants(threadId)
+                    participants.forEach { p ->
+                        if (p.peerId != myId) {
+                            try {
+                                val ciphertext = ratchetManager.encrypt(p.peerId, groupMsgBytes)
+                                connectionManager.sendMessage(p.peerId, EncryptedPayload(ciphertext))
+                            } catch (e: Exception) {
+                                // Ignore send errors for individual peers
+                            }
+                        }
+                    }
+                } else {
+                    // 1:1 LOGIC
+                    val chatMessage = TransportMessage.Chat(plaintext, expiresIn)
+                    val chatBytes = chatMessage.toBytes()
 
-                connectionManager.sendMessage(peerId, EncryptedPayload(ciphertext))
+                    val ciphertext = ratchetManager.encrypt(peerId, chatBytes)
+                    connectionManager.sendMessage(peerId, EncryptedPayload(ciphertext))
+                }
 
                 val messageEntity = MessageEntity(
                     id = messageId,
                     threadId = threadId,
                     parentMessageId = parentId,
-                    senderId = senderId,
+                    senderId = myId,
                     encryptedContent = plaintext,
                     iv = ByteArray(12),
                     sentAt = now,

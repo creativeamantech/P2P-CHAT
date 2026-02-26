@@ -25,5 +25,6 @@ import androidx.room.ForeignKey
 data class ThreadParticipantEntity(
     @ColumnInfo(name = "thread_id") val threadId: String,
     @ColumnInfo(name = "peer_id") val peerId: String,
-    @ColumnInfo(name = "joined_at") val joinedAt: Long
+    @ColumnInfo(name = "joined_at") val joinedAt: Long,
+    @ColumnInfo(name = "role") val role: String = "MEMBER" // MEMBER, ADMIN
 )

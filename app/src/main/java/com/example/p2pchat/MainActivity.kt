@@ -134,7 +134,20 @@ fun P2PChatAppContent(
                     },
                     onNavigateToTopics = {
                         navController.navigate("topics")
+                    },
+                    onNavigateToCreateGroup = {
+                        navController.navigate("create_group")
                     }
+                )
+            }
+            composable("create_group") {
+                com.example.p2pchat.feature.conversations.CreateGroupRoute(
+                    onGroupCreated = { groupId ->
+                        navController.navigate("chat/$groupId") {
+                            popUpTo("create_group") { inclusive = true }
+                        }
+                    },
+                    onBackClick = { navController.popBackStack() }
                 )
             }
             composable("topics") {

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -36,7 +37,8 @@ fun ConversationsRoute(
     onNavigateToChat: (String) -> Unit,
     onNavigateToPeers: () -> Unit,
     onNavigateToSettings: () -> Unit,
-    onNavigateToTopics: () -> Unit
+    onNavigateToTopics: () -> Unit,
+    onNavigateToCreateGroup: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
     ConversationsScreen(
@@ -45,7 +47,8 @@ fun ConversationsRoute(
         onNavigateToChat = onNavigateToChat,
         onNavigateToPeers = onNavigateToPeers,
         onNavigateToSettings = onNavigateToSettings,
-        onNavigateToTopics = onNavigateToTopics
+        onNavigateToTopics = onNavigateToTopics,
+        onNavigateToCreateGroup = onNavigateToCreateGroup
     )
 }
 
@@ -57,7 +60,8 @@ fun ConversationsScreen(
     onNavigateToChat: (String) -> Unit,
     onNavigateToPeers: () -> Unit,
     onNavigateToSettings: () -> Unit,
-    onNavigateToTopics: () -> Unit
+    onNavigateToTopics: () -> Unit,
+    onNavigateToCreateGroup: () -> Unit
 ) {
     var query by remember { mutableStateOf("") }
     var active by remember { mutableStateOf(false) }
@@ -73,6 +77,9 @@ fun ConversationsScreen(
                         }
                         IconButton(onClick = onNavigateToTopics) {
                             Icon(Icons.Default.List, contentDescription = "Topics")
+                        }
+                        IconButton(onClick = onNavigateToCreateGroup) {
+                            Icon(Icons.Default.Add, contentDescription = "Create Group")
                         }
                         IconButton(onClick = onNavigateToPeers) {
                             Icon(Icons.Default.Person, contentDescription = "Peers")

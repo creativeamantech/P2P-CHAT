@@ -104,12 +104,48 @@ sealed class TransportMessage {
         }
     }
 
+    data class SenderKeyDistribution(
+        val groupId: String,
+        val chainKey: ByteArray
+    ) : TransportMessage() {
+        override fun toBytes(): ByteArray {
+            val bos = ByteArrayOutputStream()
+            val dos = DataOutputStream(bos)
+            dos.writeByte(TYPE_SENDER_KEY_DIST)
+            dos.writeUTF(groupId)
+            dos.writeInt(chainKey.size)
+            dos.write(chainKey)
+            dos.flush()
+            return bos.toByteArray()
+        }
+    }
+
+    data class GroupMessage(
+        val groupId: String,
+        val payload: ByteArray,
+        val expiresInSeconds: Int = 0
+    ) : TransportMessage() {
+        override fun toBytes(): ByteArray {
+            val bos = ByteArrayOutputStream()
+            val dos = DataOutputStream(bos)
+            dos.writeByte(TYPE_GROUP_MSG)
+            dos.writeUTF(groupId)
+            dos.writeInt(payload.size)
+            dos.write(payload)
+            dos.writeInt(expiresInSeconds)
+            dos.flush()
+            return bos.toByteArray()
+        }
+    }
+
     companion object {
         private const val TYPE_HANDSHAKE = 1
         private const val TYPE_CHAT = 2
         const val TYPE_ATTACHMENT = 3
         private const val TYPE_SIGNALING = 4
         private const val TYPE_REACTION = 5
+        private const val TYPE_SENDER_KEY_DIST = 6
+        private const val TYPE_GROUP_MSG = 7
 
         fun fromBytes(bytes: ByteArray): TransportMessage {
             val bis = ByteArrayInputStream(bytes)
@@ -162,6 +198,23 @@ sealed class TransportMessage {
                     val emoji = dis.readUTF()
                     val remove = dis.readBoolean()
                     Reaction(msgId, emoji, remove)
+                }
+                TYPE_SENDER_KEY_DIST -> {
+                    val groupId = dis.readUTF()
+                    val len = dis.readInt()
+                    val key = ByteArray(len)
+                    dis.readFully(key)
+                    SenderKeyDistribution(groupId, key)
+                }
+                TYPE_GROUP_MSG -> {
+                    val groupId = dis.readUTF()
+                    val len = dis.readInt()
+                    val payload = ByteArray(len)
+                    dis.readFully(payload)
+                    val expires = try {
+                        if (dis.available() > 0) dis.readInt() else 0
+                    } catch (e: Exception) { 0 }
+                    GroupMessage(groupId, payload, expires)
                 }
                 else -> throw IllegalArgumentException("Unknown message type: $type")
             }

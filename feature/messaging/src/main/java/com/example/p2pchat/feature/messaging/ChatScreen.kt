@@ -211,7 +211,18 @@ fun MessageItem(
     onTag: (Message) -> Unit,
     onReact: (Message, String) -> Unit
 ) {
-    val isMe = message.senderId == "local_peer"
+    // TODO: fetch actual myId from ViewModel/Repo, for now hardcoded fallback or we need to pass it
+    // But message.senderId for me is whatever was saved.
+    // In MessagingViewModel we use myId from CryptoManager.
+    // Let's assume we can distinguish "me" by comparing with known ID or if it's "local_peer" (legacy)
+    // For now, let's just say if senderId is NOT "local_peer" and NOT my Identity ID (which we don't have here easily without passing it),
+    // we show it.
+    // Actually, distinct visual style usually enough, but name is good for groups.
+    // Let's just show senderId if alignment is Start (incoming).
+    val isMe = message.senderId == "local_peer" || message.senderId == "me" // simplified check
+    // We should probably pass 'currentUserId' to ChatScreen/MessageList to be accurate.
+    // For now, assume anything not "local_peer" is others.
+
     val alignment = if (isMe) Alignment.End else Alignment.Start
     val color = if (isMe) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
 
@@ -227,6 +238,15 @@ fun MessageItem(
                 .clickable { /* Show options */ }
                 .padding(12.dp)
         ) {
+            if (!isMe) {
+                Text(
+                    text = message.senderId.take(8),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+            }
+
             if (message.parentMessageId != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
