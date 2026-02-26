@@ -22,7 +22,7 @@ import net.sqlcipher.database.SupportFactory
         AttachmentEntity::class,
         IdentityEntity::class // Added
     ],
-    version = 7, // Bump version
+    version = 8, // Bump version
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

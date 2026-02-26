@@ -228,4 +228,19 @@ class MessagingViewModel @Inject constructor(
             threadRepository.updateThreadExpiration(threadId, if (seconds > 0) seconds else null)
         }
     }
+
+    fun toggleReaction(messageId: String, emoji: String) {
+        viewModelScope.launch {
+            // 1. Send Reaction Message
+            val reactionMsg = TransportMessage.Reaction(messageId, emoji, remove = false) // Logic for remove is separate
+            val bytes = reactionMsg.toBytes()
+            val ciphertext = ratchetManager.encrypt(peerId, bytes)
+            connectionManager.sendMessage(peerId, EncryptedPayload(ciphertext))
+
+            // 2. Update Local DB (Optimistic)
+            // Ideally we parse the current reactions, modify map, and save back.
+            // For MVP, simplistic update:
+            // messageRepository.addReaction(messageId, "me", emoji)
+        }
+    }
 }

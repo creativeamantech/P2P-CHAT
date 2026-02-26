@@ -179,7 +179,10 @@ fun P2PChatAppContent(
                 arguments = listOf(navArgument("peerId") { type = NavType.StringType })
             ) {
                 PeerDetailsScreen(
-                    onBackClick = { navController.popBackStack() }
+                    onBackClick = { navController.popBackStack() },
+                    onStartChat = { peerId ->
+                        navController.navigate("chat/$peerId")
+                    }
                 )
             }
             composable("settings") {

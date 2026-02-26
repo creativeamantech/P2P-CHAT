@@ -87,11 +87,29 @@ sealed class TransportMessage {
         }
     }
 
+    data class Reaction(
+        val messageId: String,
+        val emoji: String,
+        val remove: Boolean
+    ) : TransportMessage() {
+        override fun toBytes(): ByteArray {
+            val bos = ByteArrayOutputStream()
+            val dos = DataOutputStream(bos)
+            dos.writeByte(TYPE_REACTION)
+            dos.writeUTF(messageId)
+            dos.writeUTF(emoji)
+            dos.writeBoolean(remove)
+            dos.flush()
+            return bos.toByteArray()
+        }
+    }
+
     companion object {
         private const val TYPE_HANDSHAKE = 1
         private const val TYPE_CHAT = 2
         const val TYPE_ATTACHMENT = 3
         private const val TYPE_SIGNALING = 4
+        private const val TYPE_REACTION = 5
 
         fun fromBytes(bytes: ByteArray): TransportMessage {
             val bis = ByteArrayInputStream(bytes)
@@ -138,6 +156,12 @@ sealed class TransportMessage {
                     val sigType = dis.readUTF()
                     val payload = dis.readUTF()
                     Signaling(sigType, payload)
+                }
+                TYPE_REACTION -> {
+                    val msgId = dis.readUTF()
+                    val emoji = dis.readUTF()
+                    val remove = dis.readBoolean()
+                    Reaction(msgId, emoji, remove)
                 }
                 else -> throw IllegalArgumentException("Unknown message type: $type")
             }

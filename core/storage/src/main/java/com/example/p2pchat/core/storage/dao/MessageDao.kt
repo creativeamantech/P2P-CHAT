@@ -42,4 +42,7 @@ interface MessageDao {
 
     @Query("DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at < :now")
     suspend fun deleteExpiredMessages(now: Long): Int
+
+    @Query("UPDATE messages SET reactions = :reactionsJson WHERE id = :messageId")
+    suspend fun updateReactions(messageId: String, reactionsJson: String)
 }

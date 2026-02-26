@@ -3,8 +3,10 @@ package com.example.p2pchat.core.storage.repository
 import com.example.p2pchat.core.storage.dao.AttachmentDao
 import com.example.p2pchat.core.storage.dao.MessageDao
 import com.example.p2pchat.core.storage.dao.MessageDaoWithAttachments
+import com.example.p2pchat.core.storage.dao.ThreadDao
 import com.example.p2pchat.core.storage.dao.TopicDao
 import com.example.p2pchat.core.storage.entity.AttachmentEntity
+import com.example.p2pchat.core.storage.entity.ThreadEntity
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -15,6 +17,7 @@ import javax.inject.Inject
 
 class MessageRepository @Inject constructor(
     private val messageDao: MessageDao,
+    private val threadDao: ThreadDao,
     private val topicDao: TopicDao,
     private val attachmentDao: AttachmentDao,
     private val messageDaoWithAttachments: MessageDaoWithAttachments
@@ -39,6 +42,21 @@ class MessageRepository @Inject constructor(
 
     suspend fun saveMessage(entity: MessageEntity) {
         val content = String(entity.encryptedContent)
+
+        // Ensure Thread Exists
+        if (threadDao.getThreadById(entity.threadId) == null) {
+            val now = System.currentTimeMillis()
+            threadDao.insertThread(
+                ThreadEntity(
+                    id = entity.threadId,
+                    name = "Peer ${entity.threadId.take(8)}", // Placeholder name
+                    createdAt = now,
+                    lastActivity = now,
+                    isPinned = false
+                )
+            )
+        }
+
         messageDao.insertMessageWithFts(entity, content)
     }
 

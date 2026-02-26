@@ -115,7 +115,8 @@ fun ChatScreen(
             uiState = uiState,
             onSendMessage = { text, parentId -> viewModel.sendMessage(text, parentId) },
             onTagMessage = { id, topic -> viewModel.tagMessage(id, topic) },
-            onPickImage = { imagePickerLauncher.launch("image/*") }
+            onPickImage = { imagePickerLauncher.launch("image/*") },
+            onReact = { id, emoji -> viewModel.toggleReaction(id, emoji) }
         )
     }
 }
@@ -126,7 +127,8 @@ fun ChatContent(
     uiState: MessagingUiState,
     onSendMessage: (String, String?) -> Unit,
     onTagMessage: (String, String) -> Unit,
-    onPickImage: () -> Unit
+    onPickImage: () -> Unit,
+    onReact: (String, String) -> Unit
 ) {
     var replyingToMessageId by remember { mutableStateOf<String?>(null) }
     var taggingMessageId by remember { mutableStateOf<String?>(null) }
@@ -151,7 +153,8 @@ fun ChatContent(
                     MessageList(
                         messages = messages,
                         onReply = { replyingToMessageId = it.id },
-                        onTag = { taggingMessageId = it.id }
+                        onTag = { taggingMessageId = it.id },
+                        onReact = { msg, emoji -> onReact(msg.id, emoji) }
                     )
                 }
             }
@@ -179,7 +182,8 @@ fun ChatContent(
 fun MessageList(
     messages: LazyPagingItems<Message>,
     onReply: (Message) -> Unit,
-    onTag: (Message) -> Unit
+    onTag: (Message) -> Unit,
+    onReact: (Message, String) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -194,7 +198,7 @@ fun MessageList(
                 // To simulate threading, we can look at parentMessageId.
                 // But a true tree view is hard with Paging.
                 // We will render as flat list with visual cues for replies.
-                MessageItem(message = message, onReply = onReply, onTag = onTag)
+                MessageItem(message = message, onReply = onReply, onTag = onTag, onReact = onReact)
             }
         }
     }
@@ -204,7 +208,8 @@ fun MessageList(
 fun MessageItem(
     message: Message,
     onReply: (Message) -> Unit,
-    onTag: (Message) -> Unit
+    onTag: (Message) -> Unit,
+    onReact: (Message, String) -> Unit
 ) {
     val isMe = message.senderId == "local_peer"
     val alignment = if (isMe) Alignment.End else Alignment.Start
@@ -258,12 +263,32 @@ fun MessageItem(
             text = message.clearTextCache ?: "[Encrypted]",
             style = MaterialTheme.typography.bodyMedium
         )
+
+        // Reactions (simplified display)
+        if (message.reactions.isNotEmpty()) {
+            Row(modifier = Modifier.padding(top = 4.dp)) {
+                // Aggregate counts if needed, or just show list
+                // For MVP, just show emojis
+                message.reactions.values.distinct().forEach { emoji ->
+                    Text(
+                        text = emoji,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(end = 4.dp)
+                    )
+                }
+            }
+        }
+
         Row {
             Button(onClick = { onReply(message) }, modifier = Modifier.padding(end = 8.dp)) {
                 Text("Reply", style = MaterialTheme.typography.labelSmall)
             }
-            Button(onClick = { onTag(message) }) {
+            Button(onClick = { onTag(message) }, modifier = Modifier.padding(end = 8.dp)) {
                 Text("Tag", style = MaterialTheme.typography.labelSmall)
+            }
+            // Simple reaction button (thumbs up hardcoded for MVP UI)
+            Button(onClick = { onReact(message, "👍") }) {
+                Text("👍", style = MaterialTheme.typography.labelSmall)
             }
         }
     }

@@ -15,6 +15,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Button
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -30,6 +31,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Composable
 fun PeerDetailsScreen(
     onBackClick: () -> Unit,
+    onStartChat: (String) -> Unit,
     viewModel: PeerDetailsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -91,6 +93,15 @@ fun PeerDetailsScreen(
                             checked = peer.isVerified,
                             onCheckedChange = { viewModel.toggleVerification() }
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = { onStartChat(peer.id) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Start Chat")
                     }
                 } else {
                     Text("Peer not found")

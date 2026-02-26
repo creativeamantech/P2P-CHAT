@@ -34,7 +34,8 @@ data class MessageEntity(
     @ColumnInfo(name = "delivered_at") val deliveredAt: Long?,
     @ColumnInfo(name = "read_at") val readAt: Long?,
     @ColumnInfo(name = "is_deleted") val isDeleted: Boolean = false,
-    @ColumnInfo(name = "expires_at") val expiresAt: Long? = null
+    @ColumnInfo(name = "expires_at") val expiresAt: Long? = null,
+    @ColumnInfo(name = "reactions") val reactions: String = "{}" // JSON map: senderId -> emoji
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -54,6 +55,7 @@ data class MessageEntity(
         if (readAt != other.readAt) return false
         if (isDeleted != other.isDeleted) return false
         if (expiresAt != other.expiresAt) return false
+        if (reactions != other.reactions) return false
 
         return true
     }
@@ -71,6 +73,7 @@ data class MessageEntity(
         result = 31 * result + (readAt?.hashCode() ?: 0)
         result = 31 * result + isDeleted.hashCode()
         result = 31 * result + (expiresAt?.hashCode() ?: 0)
+        result = 31 * result + reactions.hashCode()
         return result
     }
 }

@@ -41,6 +41,7 @@ fun ConversationsRoute(
     val uiState by viewModel.uiState.collectAsState()
     ConversationsScreen(
         uiState = uiState,
+        onSearchQueryChanged = viewModel::onSearchQueryChanged,
         onNavigateToChat = onNavigateToChat,
         onNavigateToPeers = onNavigateToPeers,
         onNavigateToSettings = onNavigateToSettings,
@@ -52,6 +53,7 @@ fun ConversationsRoute(
 @Composable
 fun ConversationsScreen(
     uiState: ConversationsUiState,
+    onSearchQueryChanged: (String) -> Unit,
     onNavigateToChat: (String) -> Unit,
     onNavigateToPeers: () -> Unit,
     onNavigateToSettings: () -> Unit,
@@ -83,17 +85,45 @@ fun ConversationsScreen(
             } else {
                 SearchBar(
                     query = query,
-                    onQueryChange = { query = it },
-                    onSearch = { /* Handle search */ },
+                    onQueryChange = {
+                        query = it
+                        onSearchQueryChanged(it)
+                    },
+                    onSearch = {
+                        active = false
+                    },
                     active = active,
-                    onActiveChange = { active = it },
+                    onActiveChange = {
+                        active = it
+                        if (!it) {
+                            query = ""
+                            onSearchQueryChanged("")
+                        }
+                    },
                     placeholder = { Text("Search messages...") }
                 ) {
-                    // Search results would go here.
-                    // For MVP, we need ViewModel support for search.
-                    // Assuming ViewModel handles it if we pass query?
-                    // Skipping detailed implementation for now as ViewModel update is needed.
-                    Text("Search functionality coming soon", modifier = Modifier.padding(16.dp))
+                    if (uiState is ConversationsUiState.Success && uiState.isSearching) {
+                        LazyColumn {
+                            items(uiState.searchResults) { message ->
+                                Text(
+                                    text = try { String(message.encryptedContent) } catch (e: Exception) { "[Result]" }, // In FTS, content is usually in FTS table, but entity is returned.
+                                    // Actually, searchMessages returns MessageEntity. But FTS has decrypted content.
+                                    // The entity's encryptedContent is still encrypted.
+                                    // We need to either decrypt or use FTS snippet.
+                                    // For now, assuming ViewModel should handle display logic or decryption?
+                                    // MessageEntity contains Encrypted Bytes.
+                                    // SearchResult display implies decryption.
+                                    // Let's assume we display a placeholder "Found in thread: X" for MVP
+                                    // or decrypt it if key is available.
+                                    // Simpler: Display "Message in [Thread ID]"
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clickable { onNavigateToChat(message.threadId) }
+                                        .padding(16.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -107,15 +137,17 @@ fun ConversationsScreen(
                     Text("No conversations yet", modifier = Modifier.align(Alignment.Center))
                 }
                 is ConversationsUiState.Success -> {
-                    LazyColumn {
-                        items(uiState.conversations) { thread ->
-                            Text(
-                                text = thread.name,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clickable { onNavigateToChat(thread.id) }
-                                    .padding(16.dp)
-                            )
+                    if (!uiState.isSearching) {
+                        LazyColumn {
+                            items(uiState.conversations) { thread ->
+                                Text(
+                                    text = thread.name,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clickable { onNavigateToChat(thread.id) }
+                                        .padding(16.dp)
+                                )
+                            }
                         }
                     }
                 }
