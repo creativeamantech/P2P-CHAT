@@ -1,5 +1,6 @@
 package com.example.p2pchat.core.crypto.ratchet
 
+import com.example.p2pchat.core.crypto.privacy.MessagePadding
 import com.example.p2pchat.core.model.UserIdentity
 import com.example.p2pchat.core.storage.entity.RatchetStateEntity
 import com.example.p2pchat.core.storage.repository.RatchetRepository
@@ -13,7 +14,7 @@ import javax.inject.Singleton
 @Singleton
 class RatchetManager @Inject constructor(
     private val ratchetRepository: RatchetRepository,
-    // private val identityManager: IdentityManager // If we had one for long-term keys
+    private val messagePadding: MessagePadding
 ) {
     private val ratchetEngine = RatchetEngine()
     private val mutex = Mutex() // Lock to prevent race conditions on ratchet state
@@ -49,7 +50,10 @@ class RatchetManager @Inject constructor(
         mutex.withLock {
             val currentState = loadState(peerId) ?: throw IllegalStateException("No session for peer ")
 
-            val (newState, payload) = ratchetEngine.encrypt(currentState, plaintext)
+            // Pad message before encryption
+            val padded = messagePadding.pad(plaintext)
+
+            val (newState, payload) = ratchetEngine.encrypt(currentState, padded)
 
             saveState(peerId, newState)
             return payload
@@ -60,10 +64,12 @@ class RatchetManager @Inject constructor(
         mutex.withLock {
             val currentState = loadState(peerId) ?: throw IllegalStateException("No session for peer ")
 
-            val (newState, plaintext) = ratchetEngine.decrypt(currentState, payload)
+            val (newState, paddedPlaintext) = ratchetEngine.decrypt(currentState, payload)
 
             saveState(peerId, newState)
-            return plaintext
+
+            // Unpad message after decryption
+            return messagePadding.unpad(paddedPlaintext)
         }
     }
 

@@ -64,6 +64,20 @@ class MessagingViewModel @Inject constructor(
 
     val uiState: StateFlow<MessagingUiState> = kotlinx.coroutines.flow.flow {
         try {
+            // Paging 3 flattens the list, making tree view hard in ViewModel without loading everything.
+            // Section 9.4 implies "reconstructs thread tree from flat DB records".
+            // To support tree view properly, we might need to load ALL messages or use a different Paging approach (PagingSource that returns trees?).
+            // For MVP + Paging, we stick to flat list but ordered by thread structure if possible?
+            // Actually ThreadBuilder works on a List. Paging works on Pages.
+            // If we want a True Threaded View (collapsible), we need to load the full thread or chunks.
+            // Current `observeThread` returns PagingData<MessageWithAttachments>.
+            // Let's stick to PagingData for now but maybe we can expose a non-paged Flow for small threads?
+            // Or just keep flat list and improve visual indentation in ChatScreen (already there via parentMessageId).
+
+            // NOTE: The previous step instruction says "Implement True Threaded View ... upgrade ChatScreen from flat list to recursive tree view".
+            // This conflicts with Paging if the thread is huge.
+            // Assuming we want to visualize the hierarchy better.
+
             val pagingData = messageRepository.observeThread(threadId)
                 .map { pagingData ->
                     pagingData.map { relation ->

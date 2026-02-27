@@ -1,44 +1,58 @@
 package com.example.p2pchat.core.crypto.privacy
 
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 import java.security.SecureRandom
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class MessagePadding @Inject constructor() {
+    companion object {
+        private const val BLOCK_SIZE = 512
+    }
 
-    private val BLOCK_SIZE = 512
+    private val random = SecureRandom()
 
     fun pad(plaintext: ByteArray): ByteArray {
-        val paddedLen = ((plaintext.size / BLOCK_SIZE) + 1) * BLOCK_SIZE
-        val padded = ByteArray(paddedLen)
+        val targetSize = ((plaintext.size / BLOCK_SIZE) + 1) * BLOCK_SIZE
+        // We need at least 2 bytes for the length marker
+        val padded = ByteArray(targetSize)
 
         // Copy plaintext
-        plaintext.copyInto(padded)
+        System.arraycopy(plaintext, 0, padded, 0, plaintext.size)
 
-        // Fill padding with zeros (implicit in new ByteArray)
-        // Store length in last 4 bytes of the PADDED buffer
-        val len = plaintext.size
-        padded[paddedLen - 4] = (len shr 24).toByte()
-        padded[paddedLen - 3] = (len shr 16).toByte()
-        padded[paddedLen - 2] = (len shr 8).toByte()
-        padded[paddedLen - 1] = len.toByte()
+        // Fill padding with random bytes (or zeros if simpler, but random is better for entropy)
+        // Wait, standard PKCS7 padding fills with value equal to padding length.
+        // Here we store length explicitly at the end as per spec in Section 23.5.
+        // "Store real length in last 2 bytes"
+
+        val paddingLength = targetSize - plaintext.size
+        // Fill the gap with random noise to maximize entropy
+        val noise = ByteArray(paddingLength - 2) // -2 for length bytes
+        random.nextBytes(noise)
+        System.arraycopy(noise, 0, padded, plaintext.size, noise.size)
+
+        // Write length at the end (Big Endian)
+        padded[targetSize - 2] = (plaintext.size shr 8).toByte()
+        padded[targetSize - 1] = (plaintext.size and 0xFF).toByte()
 
         return padded
     }
 
     fun unpad(padded: ByteArray): ByteArray {
-        if (padded.size < 4) return padded
+        if (padded.size < 2) return padded // Should not happen if protocol followed
 
-        val len = ((padded[padded.size - 4].toInt() and 0xFF) shl 24) or
-                  ((padded[padded.size - 3].toInt() and 0xFF) shl 16) or
-                  ((padded[padded.size - 2].toInt() and 0xFF) shl 8) or
-                  (padded[padded.size - 1].toInt() and 0xFF)
+        val realSize = ((padded[padded.size - 2].toInt() and 0xFF) shl 8) or
+                        (padded[padded.size - 1].toInt() and 0xFF)
 
-        if (len > padded.size || len < 0) {
-            return padded // Fallback or throw?
+        if (realSize < 0 || realSize > padded.size - 2) {
+            // Invalid padding length, maybe not padded? Return as is or throw?
+            // For resilience, return as is or empty?
+            // If we enforce padding, this is an attack or error.
+            return padded
         }
 
-        return padded.copyOf(len)
+        return padded.copyOfRange(0, realSize)
     }
 }

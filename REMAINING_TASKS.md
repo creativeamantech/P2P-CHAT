@@ -1,24 +1,34 @@
-# Remaining Tasks for P2P Chat App
+# Remaining Tasks for P2P Chat App (Post-Phase 3)
 
-Based on the architectural blueprint (`P2P_Chat_App_Architecture-1.md`) and the current codebase state, the following features and components remain to be implemented:
+Following the completion of Phase 3 (Group Messaging), the following components from `P2P_Chat_App_Architecture-1.md` remain to be implemented:
 
-## 1. Core Features
-- **Group Messaging (Sender Keys):** The current implementation supports 1:1 Double Ratchet encryption. The architecture (Section 6.3) requires Sender Keys for efficient multi-party encryption.
-- **Voice Notes:** Section 20 mentions encrypted audio blobs. Recording and playback UI + attachment handling need implementation.
-- **Message Reactions:** The data model includes `reactions`, but the UI and protocol handling for adding/removing reactions are missing.
+## 1. Privacy & Anonymity (Section 23) - **High Priority**
+The core differentiation of this app is metadata privacy. Currently, we use direct IP (WebRTC/WiFi Direct).
+- [ ] **Tor Transport:** Implement `TorTransportWrapper` using `tor-android` (Section 23.2).
+- [ ] **Message Padding:** Implement `MessagePadding` to pad messages to fixed block sizes (512b) to prevent size fingerprinting (Section 23.5).
+- [ ] **Cover Traffic:** Implement `CoverTrafficManager` to send dummy messages during idle periods (Section 23.6).
+- [ ] **Privacy Settings UI:** Add screens to configure Privacy Level (Standard/High/Max) (Section 23.10).
 
-## 2. Privacy & Security
-- **Safety Number Verification:** Section 15.2 and 22.6 describe a key verification ceremony (QR/Fingerprint comparison) to prevent MITM attacks. The UI for comparing safety numbers is missing.
-- **Self-Hosted TURN:** Section 23.4 describes configuring custom TURN servers for WebRTC privacy. Currently, Google's STUN is hardcoded.
-- **I2P Transport:** Section 23.3 lists I2P as an alternative anonymity network. Only Tor is implemented.
+## 2. Advanced Media Features
+- [ ] **Voice Notes:** Implement audio recorder, encrypted blob storage, and playback UI (Section 20).
+- [ ] **Message Reactions:**
+    - Full implementation of `Reaction` storage (currently a placeholder in `MessageProcessor`).
+    - UI: Long-press context menu on messages to pick emoji.
+    - UI: Display reactions bubble with counts.
 
-## 3. UI/UX Refinement
-- **Threaded View:** Section 9.4 describes a recursive tree view for nested replies. The current `ChatScreen` uses a flat list (Paging 3).
-- **Topic Filtering:** While tagging exists, a dedicated `TopicsScreen` (Section 11.1) to browse and filter messages by tag is missing.
-- **Deep Link Handling:** `MainActivity` has basic intent handling, but the full parsing of `p2pchat://` URIs with identity keys and signatures (Section 21.2) needs full verification and wiring to `PeersViewModel`.
+## 3. Identity Management (Section 22)
+- [ ] **Multi-Identity / Burner System:**
+    - UI to create "Burner" identities.
+    - Logic to separate database contexts or tag data by `local_identity_id`.
+    - "Burn" action to wipe keys and associated data.
+- [ ] **Key Verification Ceremony:**
+    - Enhance `PeerDetailsScreen` to show the 12-word safety number (implemented basic view).
+    - Add QR Code scanning specifically for *verifying* an existing peer (comparing fingerprints).
 
-## 4. Search
-- **Full Text Search Wiring:** `MessageFtsEntity` and `SearchBar` exist, but the complete flow from UI query -> ViewModel -> Repository -> FTS Query -> UI Update needs final wiring and testing.
+## 4. UI/UX Refinements
+- [ ] **True Threaded View:** Upgrade `ChatScreen` from a flat list to a recursive tree view (or collapsible threads) as described in Section 9.4.
+- [ ] **Search Navigation:** ensure clicking a search result in `ConversationsScreen` jumps to the specific message in history, loading surrounding context (Section 11.1).
 
-## 5. Testing
-- **UI/E2E Tests:** Section 18.1 specifies a 10% allocation for UI/E2E tests (Espresso/Compose Test), which are currently minimal.
+## 5. Testing Strategy (Section 18)
+- [ ] **Unit Tests:** Expand coverage for `RatchetEngine`, `GroupCipher`, and `MessageRepository`.
+- [ ] **UI Tests:** Add Espresso/Compose tests for the critical "Alice messages Bob" flow.

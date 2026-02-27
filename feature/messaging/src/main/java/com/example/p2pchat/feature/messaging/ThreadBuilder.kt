@@ -9,32 +9,26 @@ object ThreadBuilder {
         val roots = mutableListOf<ThreadNode>()
         val childMap = mutableMapOf<String, MutableList<Message>>()
 
-        // Sort by timestamp to ensure deterministic order before building tree
-        val sortedMessages = messages.sortedBy { it.sentAt }
-
-        sortedMessages.forEach { msg ->
-            if (msg.parentMessageId == null) {
-                // Potential root, but we defer creation until we process all children
-                // Actually, in a recursive build, we need to know children first?
-                // No, we can build the map first.
+        messages.forEach { msg ->
+            if (msg.parentMessageId == null || !nodeMap.containsKey(msg.parentMessageId)) {
+                // Treated as root if parent not found in current list (Paging artifact?)
+                roots.add(ThreadNode(msg, mutableListOf()))
             } else {
                 childMap.getOrPut(msg.parentMessageId!!) { mutableListOf() }.add(msg)
             }
         }
 
-        // Recursive function
         fun buildNode(msg: Message): ThreadNode {
-            val children = childMap[msg.id]?.map { buildNode(it) } ?: emptyList()
+            val children = (childMap[msg.id] ?: emptyList())
+                .sortedBy { it.sentAt } // Chronological replies
+                .map { buildNode(it) }
+                .toMutableList()
             return ThreadNode(msg, children)
         }
 
-        // Find actual roots (null parent OR parent not in list)
-        sortedMessages.forEach { msg ->
-            if (msg.parentMessageId == null || !nodeMap.containsKey(msg.parentMessageId)) {
-                roots.add(buildNode(msg))
-            }
-        }
-
-        return roots
+        // Roots usually sorted reverse chronological for chat view, but if we build tree,
+        // we might want chronological roots if we display oldest at top?
+        // Chat is reverse layout usually.
+        return roots.map { buildNode(it.message) }.sortedByDescending { it.message.sentAt }
     }
 }
