@@ -212,29 +212,39 @@ class MessageProcessor @Inject constructor(
                                 is TransportMessage.Reaction -> {
                                     val currentMessage = messageRepository.getMessageById(msg.messageId)
                                     if (currentMessage != null) {
-                                        // Simple JSON manipulation for MVP
-                                        val reactionsMap = try {
-                                            // Parse JSON: {"senderId": "emoji", ...}
-                                            // Using simplistic string manipulation to avoid adding Gson/Moshi dep in core:network if not present
-                                            // Or assume `reactions` is just a string map.
-                                            // Let's use a simple map update logic assuming the field is a JSON string.
-                                            // Ideally use a JSON library.
-                                            // For MVP without deps:
-                                            mutableMapOf<String, String>()
-                                            // Skip parsing for now, just overwrite or append?
-                                            // Real app needs JSON parser.
+                                        try {
+                                            // Simple JSON manipulation for MVP to avoid adding Gson/Moshi dep just here
+                                            // Parse JSON: {"senderId":"emoji","senderId2":"emoji2"}
+                                            val currentJson = currentMessage.reactions.trim()
+                                            val map = mutableMapOf<String, String>()
+
+                                            if (currentJson.length > 2) {
+                                                val content = currentJson.substring(1, currentJson.length - 1)
+                                                val pairs = content.split(",")
+                                                pairs.forEach { pair ->
+                                                    val parts = pair.split(":")
+                                                    if (parts.size == 2) {
+                                                        val k = parts[0].trim('"', ' ')
+                                                        val v = parts[1].trim('"', ' ')
+                                                        map[k] = v
+                                                    }
+                                                }
+                                            }
+
+                                            if (msg.remove) {
+                                                map.remove(peerId)
+                                            } else {
+                                                map[peerId] = msg.emoji
+                                            }
+
+                                            // Serialize back to JSON
+                                            val newJson = "{" + map.entries.joinToString(",") { "\"${it.key}\":\"${it.value}\"" } + "}"
+                                            messageRepository.updateReactions(msg.messageId, newJson)
+
+                                            Log.d("MessageProcessor", "Updated reactions for ${msg.messageId}: $newJson")
                                         } catch (e: Exception) {
-                                            mutableMapOf()
+                                            Log.e("MessageProcessor", "Failed to parse/update reactions JSON", e)
                                         }
-
-                                        // Update map
-                                        // Since we lack a JSON parser here easily without checking deps,
-                                        // and `reactions` in Entity is a String.
-                                        // I will assume `reactions` stores "senderId:emoji,senderId2:emoji" for this MVP step
-                                        // to avoid adding complex parsing logic in a patch.
-
-                                        // Better: Just log it for now until I add a parser.
-                                        Log.d("MessageProcessor", "Received reaction: ${msg.emoji} from $peerId")
                                     }
                                 }
                                 is TransportMessage.SenderKeyDistribution -> {

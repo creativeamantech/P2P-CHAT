@@ -10,6 +10,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,9 +47,10 @@ fun CreateIdentityRoute(
 @Composable
 fun CreateIdentityScreen(
     uiState: CreateIdentityUiState,
-    onCreateIdentity: (String) -> Unit
+    onCreateIdentity: (String, String) -> Unit
 ) {
     var displayName by remember { mutableStateOf("") }
+    var identityType by remember { mutableStateOf("PERMANENT") }
 
     Column(
         modifier = Modifier
@@ -77,6 +80,31 @@ fun CreateIdentityScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        Text("Identity Type:")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(
+                selected = identityType == "PERMANENT",
+                onClick = { identityType = "PERMANENT" }
+            )
+            Text("Permanent (Trusted)")
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(
+                selected = identityType == "BURNER",
+                onClick = { identityType = "BURNER" }
+            )
+            Text("Burner (Expires in 24h)")
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(
+                selected = identityType == "CONTEXTUAL",
+                onClick = { identityType = "CONTEXTUAL" }
+            )
+            Text("Contextual (e.g. Work)")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         if (uiState is CreateIdentityUiState.Error) {
             Text(
                 text = uiState.message,
@@ -89,7 +117,7 @@ fun CreateIdentityScreen(
             CircularProgressIndicator()
         } else {
             Button(
-                onClick = { onCreateIdentity(displayName) },
+                onClick = { onCreateIdentity(displayName, identityType) },
                 enabled = displayName.isNotBlank()
             ) {
                 Text("Create Identity")

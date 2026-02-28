@@ -98,6 +98,26 @@ class MessagingViewModel @Inject constructor(
                             "[Error]"
                         }
 
+                        val reactionsMap = try {
+                            val currentJson = entity.reactions.trim()
+                            val map = mutableMapOf<String, String>()
+                            if (currentJson.length > 2) {
+                                val content = currentJson.substring(1, currentJson.length - 1)
+                                val pairs = content.split(",")
+                                pairs.forEach { pair ->
+                                    val parts = pair.split(":")
+                                    if (parts.size == 2) {
+                                        val k = parts[0].trim('"', ' ')
+                                        val v = parts[1].trim('"', ' ')
+                                        map[k] = v
+                                    }
+                                }
+                            }
+                            map
+                        } catch (e: Exception) {
+                            emptyMap()
+                        }
+
                         Message(
                             id = entity.id,
                             threadId = entity.threadId,
@@ -110,7 +130,7 @@ class MessagingViewModel @Inject constructor(
                             attachments = attachments,
                             sentAt = kotlinx.datetime.Instant.fromEpochMilliseconds(entity.sentAt),
                             deliveryState = DeliveryState.Pending,
-                            reactions = emptyMap()
+                            reactions = reactionsMap
                         )
                     }
                 }
@@ -268,16 +288,66 @@ class MessagingViewModel @Inject constructor(
 
     fun toggleReaction(messageId: String, emoji: String) {
         viewModelScope.launch {
-            // 1. Send Reaction Message
-            val reactionMsg = TransportMessage.Reaction(messageId, emoji, remove = false) // Logic for remove is separate
-            val bytes = reactionMsg.toBytes()
-            val ciphertext = ratchetManager.encrypt(peerId, bytes)
-            connectionManager.sendMessage(peerId, EncryptedPayload(ciphertext))
+            val myId = cryptoManager.getMyIdentity()?.userId ?: "local_peer"
 
-            // 2. Update Local DB (Optimistic)
-            // Ideally we parse the current reactions, modify map, and save back.
-            // For MVP, simplistic update:
-            // messageRepository.addReaction(messageId, "me", emoji)
+            // 1. Update Local DB (Optimistic)
+            val currentMessage = messageRepository.getMessageById(messageId)
+            var remove = false
+            if (currentMessage != null) {
+                try {
+                    val currentJson = currentMessage.reactions.trim()
+                    val map = mutableMapOf<String, String>()
+                    if (currentJson.length > 2) {
+                        val content = currentJson.substring(1, currentJson.length - 1)
+                        val pairs = content.split(",")
+                        pairs.forEach { pair ->
+                            val parts = pair.split(":")
+                            if (parts.size == 2) {
+                                val k = parts[0].trim('"', ' ')
+                                val v = parts[1].trim('"', ' ')
+                                map[k] = v
+                            }
+                        }
+                    }
+
+                    if (map[myId] == emoji) {
+                        map.remove(myId)
+                        remove = true
+                    } else {
+                        map[myId] = emoji
+                    }
+
+                    val newJson = "{" + map.entries.joinToString(",") { "\"${it.key}\":\"${it.value}\"" } + "}"
+                    messageRepository.updateReactions(messageId, newJson)
+                } catch (e: Exception) {
+                    // ignore
+                }
+            }
+
+            // 2. Send Reaction Message
+            val reactionMsg = TransportMessage.Reaction(messageId, emoji, remove)
+            val bytes = reactionMsg.toBytes()
+
+            val thread = threadRepository.getThreadEntity(threadId)
+            val isGroup = thread?.type == "GROUP"
+
+            if (isGroup) {
+                // Not fully spec'd how reactions are sent in groups, but we can just use 1:1 ratchet to all members
+                val participants = threadRepository.getParticipants(threadId)
+                participants.forEach { p ->
+                    if (p.peerId != myId) {
+                        try {
+                            val ciphertext = ratchetManager.encrypt(p.peerId, bytes)
+                            connectionManager.sendMessage(p.peerId, EncryptedPayload(ciphertext))
+                        } catch (e: Exception) {}
+                    }
+                }
+            } else {
+                try {
+                    val ciphertext = ratchetManager.encrypt(peerId, bytes)
+                    connectionManager.sendMessage(peerId, EncryptedPayload(ciphertext))
+                } catch (e: Exception) {}
+            }
         }
     }
 }

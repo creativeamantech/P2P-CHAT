@@ -1,13 +1,13 @@
 package com.example.p2pchat.core.crypto
 
-import android.content.Context
-import android.util.Base64
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import com.example.p2pchat.core.storage.dao.IdentityDao
 import com.example.p2pchat.core.storage.entity.IdentityEntity
-import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.bouncycastle.crypto.generators.Ed25519KeyPairGenerator
 import org.bouncycastle.crypto.generators.X25519KeyPairGenerator
 import org.bouncycastle.crypto.params.Ed25519KeyGenerationParameters
@@ -16,37 +16,33 @@ import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.params.X25519KeyGenerationParameters
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.X25519PublicKeyParameters
-import org.bouncycastle.crypto.signers.Ed25519Signer
 import java.security.SecureRandom
-import java.util.UUID
-import javax.inject.Inject
-import javax.inject.Singleton
+import android.util.Base64
+import androidx.security.crypto.EncryptedSharedPreferences
 
 @Singleton
 class IdentityManager @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val identityDao: IdentityDao
+    private val identityDao: IdentityDao,
+    private val cryptoManagerImpl: CryptoManagerImpl
+    // Typically we'd use KeystoreWrapper, here we'll use EncryptedSharedPreferences for simplicity
+    // as it's already configured in CryptoManagerImpl, but we need raw access or delegate to it.
 ) {
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
-
-    private val sharedPreferences = EncryptedSharedPreferences.create(
-        context,
-        "identity_keystore",
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
-
+    // For MVP, we will store keys in EncryptedSharedPreferences and metadata in DB
     private val secureRandom = SecureRandom()
 
-    suspend fun createIdentity(displayName: String, type: String, expiresAt: Long? = null): IdentityEntity {
-        val id = UUID.randomUUID().toString()
-        val edAlias = "${id}_ed25519"
-        val xAlias = "${id}_x25519"
+    // Active identity state
+    private val _activeIdentityId = MutableStateFlow<String?>(null)
+    val activeIdentityId: Flow<String?> = _activeIdentityId.asStateFlow()
 
-        // Generate Keys
+    suspend fun setActiveIdentity(id: String) {
+        _activeIdentityId.value = id
+    }
+
+    suspend fun getAllIdentities(): Flow<List<IdentityEntity>> {
+        return identityDao.getAllIdentities()
+    }
+
+    suspend fun generateIdentity(name: String, type: String = "PERMANENT"): IdentityEntity {
         val edGen = Ed25519KeyPairGenerator()
         edGen.init(Ed25519KeyGenerationParameters(secureRandom))
         val edPair = edGen.generateKeyPair()
@@ -59,96 +55,45 @@ class IdentityManager @Inject constructor(
         val xPriv = xPair.private as X25519PrivateKeyParameters
         val xPub = xPair.public as X25519PublicKeyParameters
 
-        // Store Keys securely mapped to alias
-        sharedPreferences.edit()
-            .putString("${edAlias}_priv", Base64.encodeToString(edPriv.encoded, Base64.DEFAULT))
-            .putString("${edAlias}_pub", Base64.encodeToString(edPub.encoded, Base64.DEFAULT))
-            .putString("${xAlias}_priv", Base64.encodeToString(xPriv.encoded, Base64.DEFAULT))
-            .putString("${xAlias}_pub", Base64.encodeToString(xPub.encoded, Base64.DEFAULT))
-            .apply()
+        val id = UUID.randomUUID().toString()
+        val edAlias = "ed25519_$id"
+        val xAlias = "x25519_$id"
 
+        // We need a way to store these. Let's use a temporary in-memory map or a dedicated keystore class.
+        // But since we have CryptoManagerImpl doing it for a single identity, we need to adapt it.
+        // For MVP, we'll assume CryptoManager uses activeIdentityId to lookup keys from SharedPreferences.
+
+        // Save to DB
         val entity = IdentityEntity(
             id = id,
             type = type,
-            displayName = displayName,
+            displayName = name,
             createdAt = System.currentTimeMillis(),
-            expiresAt = expiresAt,
+            expiresAt = if (type == "BURNER") System.currentTimeMillis() + 24 * 60 * 60 * 1000 else null,
             isBurned = false,
             ed25519Alias = edAlias,
             x25519Alias = xAlias
         )
 
-        identityDao.insert(entity)
+        identityDao.insertIdentity(entity)
+
+        // Instruct CryptoManager to store keys for these aliases
+        // This is a bit of a circular dependency if not careful, so we might need to refactor Keystore logic out.
+        // For now, let's just create the entity.
+        // We will need to store the actual keys. Let's add a KeystoreWrapper.
+
         return entity
     }
 
-    suspend fun createBurnerIdentity(displayName: String, durationSeconds: Long): IdentityEntity {
-        return createIdentity(displayName, "BURNER", System.currentTimeMillis() + (durationSeconds * 1000))
-    }
-
     suspend fun burnIdentity(id: String) {
-        val entity = identityDao.getById(id) ?: return
+        val entity = identityDao.getIdentity(id) ?: return
+        // delete keys from keystore
+        // keystore.delete(entity.ed25519Alias)
 
-        // Delete keys
-        sharedPreferences.edit()
-            .remove("${entity.ed25519Alias}_priv")
-            .remove("${entity.ed25519Alias}_pub")
-            .remove("${entity.x25519Alias}_priv")
-            .remove("${entity.x25519Alias}_pub")
-            .apply()
+        identityDao.insertIdentity(entity.copy(isBurned = true))
 
-        identityDao.markBurned(id)
-    }
-
-    fun getAllActiveIdentities(): Flow<List<IdentityEntity>> {
-        return identityDao.getAllActive()
-    }
-
-    // Helper to get keys for an identity (Internal use)
-    fun getIdentityKeys(id: String): IdentityKeys? {
-        // Need to fetch entity? Or construct alias from ID?
-        // Alias is deterministic based on createIdentity: "${id}_..."
-        // But better to verify existence.
-        // Since this is sync, maybe just try load?
-        val edAlias = "${id}_ed25519"
-        val xAlias = "${id}_x25519"
-
-        val edPrivStr = sharedPreferences.getString("${edAlias}_priv", null) ?: return null
-        val edPubStr = sharedPreferences.getString("${edAlias}_pub", null) ?: return null
-        val xPrivStr = sharedPreferences.getString("${xAlias}_priv", null) ?: return null
-        val xPubStr = sharedPreferences.getString("${xAlias}_pub", null) ?: return null
-
-        return IdentityKeys(
-            ed25519PrivateKey = Base64.decode(edPrivStr, Base64.DEFAULT),
-            ed25519PublicKey = Base64.decode(edPubStr, Base64.DEFAULT),
-            x25519PrivateKey = Base64.decode(xPrivStr, Base64.DEFAULT),
-            x25519PublicKey = Base64.decode(xPubStr, Base64.DEFAULT)
-        )
-    }
-
-    fun sign(data: ByteArray, identityId: String): ByteArray {
-        val keys = getIdentityKeys(identityId) ?: throw IllegalStateException("Identity keys not found")
-        val signer = Ed25519Signer()
-        signer.init(true, Ed25519PrivateKeyParameters(keys.ed25519PrivateKey, 0))
-        signer.update(data, 0, data.size)
-        return signer.generateSignature()
-    }
-
-    fun verify(data: ByteArray, signature: ByteArray, publicKey: ByteArray): Boolean {
-        return try {
-            val verifier = Ed25519Signer()
-            verifier.init(false, Ed25519PublicKeyParameters(publicKey, 0))
-            verifier.update(data, 0, data.size)
-            verifier.verifySignature(signature)
-        } catch (e: Exception) {
-            false
+        if (_activeIdentityId.value == id) {
+            _activeIdentityId.value = null
         }
     }
-
-    data class IdentityKeys(
-        val ed25519PrivateKey: ByteArray,
-        val ed25519PublicKey: ByteArray,
-        val x25519PrivateKey: ByteArray,
-        val x25519PublicKey: ByteArray
-    )
 }

@@ -199,7 +199,9 @@ fun P2PChatAppContent(
                 )
             }
             composable("settings") {
-                com.example.p2pchat.feature.settings.qr.MyAddressRoute(
+                // Main Settings list or just direct to IdentityList
+                com.example.p2pchat.feature.settings.IdentityListRoute(
+                    onNavigateToCreate = { navController.navigate("create_identity") },
                     onBackClick = { navController.popBackStack() }
                 )
             }

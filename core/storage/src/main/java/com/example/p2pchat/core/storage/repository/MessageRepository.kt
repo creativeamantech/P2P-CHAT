@@ -79,4 +79,12 @@ class MessageRepository @Inject constructor(
     suspend fun deleteExpiredMessages(now: Long) {
         messageDao.deleteExpiredMessages(now)
     }
+
+    suspend fun getMessageById(messageId: String): MessageEntity? {
+        return messageDao.getMessageById(messageId)
+    }
+
+    suspend fun updateReactions(messageId: String, reactionsJson: String) {
+        messageDao.updateReactions(messageId, reactionsJson)
+    }
 }
