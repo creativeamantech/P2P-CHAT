@@ -28,3 +28,4 @@ out/
 /feature/*/build/
 /app/build/
 /test-utils/build/
+core/app-release-unsigned.apk
